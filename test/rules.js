@@ -53,7 +53,9 @@ const empty = g => { for (const p of g.players) { g.pile.push(...p.hand); p.hand
   hand(g, 'p1', [find('missed', 'C', 10)]);
   top(g, [find('beer', 'H', 6)]);             // 주르도네 술통 뽑기 → 하트
   g.answer('p0', { a: 'play', c: g.P('p0').hand[0], t: 'p1' });
-  ok(g.req.kind === 'react' && g.req.need === 1, '술통 성공으로 빗나감! 1장만 더');
+  ok(g.req.kind === 'react' && g.req.need === 2 && g.req.barrel === 1, '슬랩 — 빗나감! 2장, 술통 단추');
+  g.answer('p1', { a: 'barrel' });
+  ok(g.req.kind === 'react' && g.req.need === 1 && !g.req.barrel, '술통 성공으로 빗나감! 1장만 더');
   g.answer('p1', { a: 'cards', cs: g.P('p1').hand.slice() });
   ok(g.P('p1').hp === 4, '슬랩 뱅!을 술통+빗나감!으로 막음');
 }
@@ -62,7 +64,7 @@ const empty = g => { for (const p of g.players) { g.pile.push(...p.hand); p.hand
 {
   const g = setup(['calamity', 'bart', 'pedro', 'sid']);
   empty(g);
-  hand(g, 'p0', [find('missed', 'S', 2)]);
+  hand(g, 'p0', [find('missed', 'S', 2), find('beer', 'H', 6)]);
   hand(g, 'p1', []);
   g.answer('p0', { a: 'play', c: g.P('p0').hand[0], t: 'p1' });
   ok(g.P('p1').hp === 3, '캘러미티 빗나감!=뱅! 맞음');
@@ -78,6 +80,8 @@ const empty = g => { for (const p of g.players) { g.pile.push(...p.hand); p.hand
   hand(g, 'p3', [find('beer', 'H', 7)]);
   g.P('p3').hp = 1;
   g.answer('p0', { a: 'play', c: bangs[0], t: 'p3' });
+  ok(g.req.kind === 'react' && g.req.to === 'p3', '손에 카드가 있으면 막을 카드가 없어도 묻는다');
+  g.answer('p3', { a: 'take' });
   ok(g.req.kind === 'dying' && g.req.to === 'p3', '맥주 물음');
   g.answer('p3', { a: 'beer', c: g.P('p3').hand[0] });
   ok(g.P('p3').hp === 1 && g.P('p3').alive, '맥주로 버팀');
@@ -121,7 +125,7 @@ const empty = g => { for (const p of g.players) { g.pile.push(...p.hand); p.hand
   const g = setup(['bart', 'sid', 'pedro', 'kit']);
   empty(g);
   const [j1] = all('jail');
-  hand(g, 'p0', [j1]);
+  hand(g, 'p0', [j1, find('beer', 'H', 9)]);
   ok(g.whyNot(g.P('p0'), j1, 'p0') !== null, '자기 자신 감옥 안 됨');
   g.answer('p0', { a: 'play', c: j1, t: 'p1' });
   top(g, [find('bang', 'C', 2)]);              // 클럽 → 못 나감
@@ -142,11 +146,12 @@ const empty = g => { for (const p of g.players) { g.pile.push(...p.hand); p.hand
   g.P('p2').alive = false; g.P('p3').alive = false; g.P('p2').hp = 0; g.P('p3').hp = 0;
   hand(g, 'p0', [find('beer', 'H', 9)]);
   g.P('p0').hp = 2;
-  ok(g.whyNot(g.P('p0'), find('beer', 'H', 9)) !== null, '두 명이면 맥주 못 냄');
+  ok(g.whyNot(g.P('p0'), find('beer', 'H', 9)) === null && !g.canBeer(), '두 명이면 맥주는 내도 효과 없음 (FAQ Q25)');
   hand(g, 'p0', all('bang').slice(0, 5));
   g.P('p0').hp = 5;
   g.P('p1').hp = 1; hand(g, 'p1', [find('beer', 'H', 10)]);
   g.answer('p0', { a: 'play', c: g.P('p0').hand[0], t: 'p1' });
+  if (g.req && g.req.kind === 'react') g.answer('p1', { a: 'take' });
   ok(g.over && g.over.team === 'sheriff', '보안관 승리 (맥주 못 씀) ' + JSON.stringify(g.over));
 }
 {
@@ -177,6 +182,7 @@ const empty = g => { for (const p of g.players) { g.pile.push(...p.hand); p.hand
   table(g, 'p0', [find('scope')]);
   g.P('p3').hp = 1; g.P('p3').hand = []; g.P('p3').hand.push(find('panic', 'D', 8));
   g.answer('p0', { a: 'play', c: g.P('p0').hand.find(c => DECK[c].k === 'bang'), t: 'p3' });
+  if (g.req.kind === 'react') g.answer('p3', { a: 'take' });
   ok(!g.P('p3').alive, '엘 그링고 쓰러짐');
   ok(g.P('p1').hand.includes(find('panic', 'D', 8)) && g.P('p1').hand.includes(find('mustang', 'H', 8)), '벌처 샘이 손·앞 카드를 다 가져감');
   // 수지: 손이 비면 1장

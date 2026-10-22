@@ -3,139 +3,260 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1c120b">
 <title>뱅!</title>
-<meta name="description" content="보안관 · 부관 · 무법자 · 배신자. 정체를 숨긴 총잡이들의 서부 카드게임, 4~7명.">
-<meta name="theme-color" content="#1a120c">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Rye&family=Hahmlet:wght@500;700;900&display=swap">
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-<link rel="stylesheet" href="style.css">
+<meta name="description" content="보안관 · 부관 · 무법자 · 배신자. 정체를 숨긴 총잡이들의 서부 카드게임 — 4~7인 온라인, 혼자면 봇과 함께.">
+<link rel="preload" href="/fonts/gowun-b.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/img/ui/title_bg.jpg" as="image">
+<link rel="stylesheet" href="/style.css">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🤠</text></svg>">
 </head>
-<body data-view="title">
+<body>
 
-<header class="top">
+<div class="backdrop" aria-hidden="true"></div>
+
+<header class="topbar">
   <a class="brand" href="https://41ways.github.io/norara/">norara</a>
   <span class="top-r">
-    <span id="net" class="net" hidden>연결 중…</span>
-    <button class="icon" id="rulesBtn" title="규칙">📜</button>
-    <button class="icon" id="muteBtn" title="소리">🔊</button>
+    <button class="ibtn" data-help aria-label="규칙">?</button>
+    <button class="ibtn" data-mute aria-label="소리">🔇</button>
   </span>
 </header>
 
-<!-- ───── 시작 ───── -->
-<section id="v-title" class="view">
-  <div class="title-box">
-    <div class="logo">BANG!</div>
-    <div class="logo-kr">뱅!</div>
-    <p class="tag">정체를 숨긴 총잡이들의 서부 · 4~7명</p>
-    <form id="nameForm" class="name-form" autocomplete="off">
-      <input id="nameIn" maxlength="12" placeholder="이름을 적으세요" required>
-      <button class="btn big">입장</button>
-    </form>
-    <button class="link" id="rulesBtn2">처음이라면 — 규칙 보기</button>
+<!-- ───────────────── 타이틀 ───────────────── -->
+<section id="title" class="screen on">
+  <div class="hero">
+    <img class="logo" src="/img/ui/logo.webp" alt="BANG!">
+    <p class="tagline">보안관을 지켜라, 아니면 쏴라.</p>
   </div>
-  <p class="legal">이 프로젝트는 보드게임 『뱅!(BANG!)』을 구현한 학습 목적의 비공식 팬 프로젝트입니다.<br>본 프로젝트는 비영리이며, 어떠한 수익도 발생시키지 않습니다.<br>『뱅!』의 명칭 및 관련 상표에 대한 모든 권리는 원권리자(dV Giochi)에게 있습니다.<br>게임 내 모든 이미지는 AI로 생성한 창작물입니다.<br>원권리자의 요청이 있을 경우 즉시 프로젝트를 비공개 전환 또는 삭제하겠습니다.<br>문의: gyolno2@naver.com</p>
-</section>
-
-<!-- ───── 대기방 ───── -->
-<section id="v-lobby" class="view">
-  <div class="lobby">
-    <div class="panel rooms-panel">
-      <div class="panel-head">
-        <h2>대기방</h2>
-        <span class="me-name">🤠 <b id="meName"></b> <button class="link sm" id="renameBtn">이름 바꾸기</button></span>
-      </div>
-      <form id="createForm" class="create" autocomplete="off">
-        <input id="titleIn" maxlength="24" placeholder="방 이름 (비우면 자동)">
-        <button class="btn">방 만들기</button>
-      </form>
-      <form id="codeForm" class="code-join" autocomplete="off">
-        <input id="codeIn" maxlength="4" placeholder="방 번호" autocapitalize="characters">
-        <button class="btn ghost">번호로 입장</button>
-      </form>
-      <div id="roomList" class="room-list"></div>
+  <div class="title-low">
+    <div class="title-actions">
+      <button id="bBegin" class="wbtn red big"><span>시작하기</span></button>
+      <button class="wbtn big" data-help><span>규칙 보기</span></button>
     </div>
-    <div class="panel chat-panel">
-      <div class="panel-head"><h2>잡담</h2><span class="online" id="online"></span></div>
-      <div class="chat-log" id="lobbyChat"></div>
-      <form class="chat-form" data-ch="lobby" autocomplete="off"><input maxlength="200" placeholder="대기방 사람들에게 한마디"><button class="btn">보내기</button></form>
-    </div>
+    <p class="hero-foot">4~7인 온라인 · 혼자면 봇과 함께 · Board Game Arena 규칙 그대로</p>
+    <p class="legal">이 프로젝트는 보드게임 『뱅!(BANG!)』을 구현한 학습 목적의 비공식 팬 프로젝트입니다.<br>본 프로젝트는 비영리이며, 어떠한 수익도 발생시키지 않습니다.<br>『뱅!』의 명칭 및 관련 상표에 대한 모든 권리는 원권리자(dV Giochi)에게 있습니다.<br>게임 내 모든 이미지는 AI로 생성한 창작물입니다.<br>원권리자의 요청이 있을 경우 즉시 프로젝트를 비공개 전환 또는 삭제하겠습니다.<br>문의: gyolno2@naver.com</p>
   </div>
 </section>
 
-<!-- ───── 방 대기실 ───── -->
-<section id="v-room" class="view">
-  <div class="lobby">
-    <div class="panel room-panel">
-      <div class="panel-head">
-        <h2 id="roomTitle"></h2>
-        <span class="code">방 번호 <b id="roomCode"></b></span>
+<!-- ───────────────── 방 고르기 ───────────────── -->
+<section id="setup" class="screen">
+  <div class="setup">
+    <div class="poster gate">
+      <button id="bBack" class="back" aria-label="뒤로">‹</button>
+      <p class="wanted">WANTED</p>
+      <h2 class="poster-title">총잡이 이름</h2>
+      <input id="gName" class="name-in" maxlength="12" placeholder="이름을 적어 주세요" autocomplete="off" spellcheck="false">
+      <button id="bCreate" class="wbtn red big"><span>새 테이블 열기</span></button>
+      <div class="checks">
+        <label class="check"><input type="checkbox" id="gPriv"><span>비공개 <small>코드로만 들어와요</small></span></label>
+        <label class="check"><input type="checkbox" id="gSpec" checked><span>관전 허용 <small>시작한 판도 구경할 수 있어요</small></span></label>
       </div>
-      <div id="seatList" class="seat-list"></div>
-      <div id="watchers" class="watchers"></div>
-      <div id="hostOpts" class="opts">
-        <label>최대 인원 <select id="optMax"><option>4</option><option>5</option><option>6</option><option>7</option></select></label>
-        <label>내 턴 <select id="optTurn"><option value="30">30초</option><option value="45">45초</option><option value="60">60초</option><option value="90">90초</option></select></label>
-        <label>막기·고르기 <select id="optReact"><option value="10">10초</option><option value="15">15초</option><option value="20">20초</option><option value="30">30초</option></select></label>
+      <div class="or"><span>또는 방 코드로</span></div>
+      <div class="join-row">
+        <input id="gCode" class="code-in" maxlength="4" placeholder="ABCD" autocomplete="off" spellcheck="false">
+        <button id="bJoin" class="wbtn"><span>입장</span></button>
       </div>
-      <div class="room-actions">
-        <button class="btn ghost" id="leaveBtn">나가기</button>
-        <button class="btn ghost" id="addBotBtn">🤖 봇 추가</button>
-        <button class="btn ghost" id="sitBtn" hidden>자리에 앉기</button>
-        <button class="btn big" id="startBtn">게임 시작</button>
-      </div>
-      <p class="hint" id="roomHint"></p>
     </div>
-    <div class="panel chat-panel">
-      <div class="panel-head"><h2>방 채팅</h2></div>
-      <div class="chat-log" id="roomChat"></div>
-      <form class="chat-form" data-ch="room" autocomplete="off"><input maxlength="200" placeholder="방 사람들에게 한마디"><button class="btn">보내기</button></form>
+    <div class="board rooms">
+      <div class="board-in">
+        <p class="board-title">마을 게시판 <span id="roomCount"></span></p>
+        <p class="online" id="online"></p>
+        <ul id="roomList" class="room-list"></ul>
+        <p id="roomEmpty" class="room-empty">지금 열린 테이블이 없어요.<br>새 테이블을 열고 친구를 부르거나, 봇과 먼저 해 보세요.</p>
+      </div>
     </div>
   </div>
 </section>
 
-<!-- ───── 판 ───── -->
-<section id="v-game" class="view">
-  <div class="game">
-    <div class="table" id="table">
-      <div class="center" id="center">
-        <div class="pile deck" id="deckPile" title="더미"><div class="cnt" id="deckN"></div></div>
-        <div class="pile discard" id="discardPile" title="버린 카드"></div>
-        <div class="store" id="store"></div>
-        <div class="flip" id="flip"></div>
+<!-- ───────────────── 대기실 ───────────────── -->
+<section id="lobby" class="screen">
+  <div class="board lobby">
+    <div class="board-in">
+      <header class="lobby-head">
+        <div class="code-box"><small>테이블 코드</small><b id="lCode">----</b><small id="lCount"></small></div>
+        <div class="head-actions">
+          <button id="bCopy" class="wbtn sm"><span>초대 링크 복사</span></button>
+          <button id="bLeave1" class="wbtn sm dark"><span>나가기</span></button>
+        </div>
+      </header>
+      <p class="spec-note" id="lSpecNote" hidden>관전 중 — 자리가 나면 다음 판부터 같이 해요</p>
+      <ul id="lSeats" class="seats"></ul>
+      <div id="lHostBox" class="host-box">
+        <div class="opt"><span class="opt-t">인물</span><div class="seg" id="segChars"><button data-v="random">무작위로</button><button data-v="pick">두 장 중 고르기</button></div></div>
+        <div class="opt"><span class="opt-t">최대 인원</span><div class="seg" id="segMax"><button data-v="4">4</button><button data-v="5">5</button><button data-v="6">6</button><button data-v="7">7</button></div></div>
+        <div class="opt"><span class="opt-t">내 턴 시간</span><div class="seg" id="segTurn"><button data-v="30">30초</button><button data-v="60">60초</button><button data-v="90">90초</button><button data-v="0">무제한</button></div></div>
+        <div class="opt"><span class="opt-t">막기·고르기</span><div class="seg" id="segReact"><button data-v="15">15초</button><button data-v="20">20초</button><button data-v="30">30초</button></div></div>
+        <div class="opt"><span class="opt-t">비공개</span><button id="tPriv" class="toggle" role="switch" aria-checked="false"><span></span></button>
+          <span class="opt-t">관전 허용</span><button id="tSpec" class="toggle" role="switch" aria-checked="true"><span></span></button></div>
+        <div class="lobby-actions">
+          <button id="bBot" class="wbtn"><span>봇 앉히기</span></button>
+          <button id="bStart" class="wbtn red big"><span>게임 시작</span></button>
+        </div>
+        <p class="hint" id="lHint"></p>
       </div>
-      <div id="seats"></div>
-      <div id="fxLayer" class="fx-layer"></div>
-      <div class="banner" id="banner"></div>
+      <p id="lWait" class="wait" hidden>방장이 시작하기를 기다리는 중…</p>
     </div>
-    <div class="bottom" id="bottom">
-      <div class="prompt" id="prompt">
-        <div class="timer"><i id="timerBar"></i></div>
-        <div class="p-text" id="pText"></div>
-        <div class="p-btns" id="pBtns"></div>
-      </div>
-      <div class="hand" id="hand"></div>
-    </div>
-    <aside class="side">
-      <div class="side-tabs"><button class="on" data-tab="log">기록</button><button data-tab="chat">채팅 <i id="chatDot" hidden></i></button><button class="sm" id="exitBtn" title="나가기">나가기</button></div>
-      <div class="side-log" id="gameLog"></div>
-      <div class="side-chat">
-        <div class="chat-log" id="gameChat"></div>
-        <form class="chat-form" data-ch="room" autocomplete="off"><input maxlength="200" placeholder="한마디 (손에 든 카드는 말하면 안 돼요)"><button class="btn">보내기</button></form>
-      </div>
-    </aside>
   </div>
 </section>
 
-<!-- 카드 크게 보기 -->
+<!-- ───────────────── 역할 · 인물 ───────────────── -->
+<section id="intro" class="screen">
+  <div class="intro">
+    <p class="intro-step" id="iStep">역할 카드를 받았습니다</p>
+    <div class="intro-row">
+      <div class="role-flip" id="iRole">
+        <div class="rf-in">
+          <div class="rf-face rf-back"><img src="/img/roles/back.webp" alt=""></div>
+          <div class="rf-face rf-front"><img id="iRoleImg" alt=""><p class="rf-name" id="iRoleName"></p></div>
+        </div>
+        <p class="rf-goal" id="iGoal"></p>
+      </div>
+      <div class="intro-chars">
+        <p class="ic-title" id="iCharT">인물을 한 명 고르세요</p>
+        <div class="ic-pick" id="iChars"></div>
+        <button id="bReady" class="wbtn red big" hidden><span>확인했어요</span></button>
+      </div>
+    </div>
+    <p class="intro-foot" id="iFoot"></p>
+    <div class="intro-who" id="iWho"></div>
+  </div>
+</section>
+
+<!-- ───────────────── 판 ───────────────── -->
+<section id="game" class="screen">
+  <div class="table" id="table">
+    <div class="opps" id="opps"></div>
+    <div class="center" id="center">
+      <div class="deck" id="deck"><img src="/img/cards/back.webp" alt=""><b id="deckN"></b></div>
+      <div class="pile" id="pile"></div>
+      <div class="store" id="store" hidden></div>
+    </div>
+    <div class="flip" id="flip" hidden></div>
+    <div class="fx-layer" id="fx"></div>
+    <div class="opening" id="gate" hidden></div>
+  </div>
+
+  <div class="act" id="act">
+    <i class="act-timer"><i id="actBar"></i></i>
+    <p class="act-text" id="actText"></p>
+    <div class="act-btns" id="actBtns"></div>
+  </div>
+
+  <div class="myzone" id="mine">
+    <div class="me" id="me"></div>
+    <div class="hand" id="hand"></div>
+  </div>
+
+  <div class="game-tools">
+    <button class="ibtn" id="bLog" aria-label="기록">📜</button>
+    <button class="ibtn" id="bLeave2" aria-label="나가기">🚪</button>
+    <button class="ibtn" id="bEmo" aria-label="표정">🤠</button>
+  </div>
+  <aside class="log" id="log"><header><b>기록</b><button class="x" id="logX" aria-label="닫기">✕</button></header><div class="log-in" id="logIn"></div></aside>
+
+  <div class="reacts" id="reacts">
+    <button data-e="0">🤠</button><button data-e="1">😏</button><button data-e="2">🤔</button>
+    <button data-e="3">😱</button><button data-e="4">😤</button><button data-e="5">👏</button>
+  </div>
+</section>
+
+<!-- ───────────────── 끝 ───────────────── -->
+<section id="over" class="screen">
+  <div class="poster over">
+    <p class="wanted" id="oWanted">THE END</p>
+    <h2 id="oTitle"></h2>
+    <p class="over-sub" id="oSub"></p>
+    <ul class="final" id="oFinal"></ul>
+    <p class="spec-note" id="oSpecNote" hidden>관전 중 — 다시 하면 자리가 나는 대로 같이 해요</p>
+    <div class="over-actions">
+      <button id="bAgain" class="wbtn red big"><span>한 판 더</span></button>
+      <button id="bLeave3" class="wbtn"><span>테이블 떠나기</span></button>
+    </div>
+    <p class="wait" id="oWait"></p>
+  </div>
+</section>
+
+<!-- ───────────────── 규칙 ───────────────── -->
+<div id="help" class="modal" hidden>
+  <div class="sheet">
+    <header class="sheet-head"><h2>뱅! 규칙</h2><button class="x" id="bHelpX" aria-label="닫기">✕</button></header>
+    <nav class="tabs" id="helpTabs">
+      <button class="on" data-tab="basic">기본</button><button data-tab="cards">카드</button><button data-tab="chars">인물</button><button data-tab="ui">조작</button>
+    </nav>
+    <div class="sheet-body" id="helpBody"></div>
+  </div>
+</div>
+
+<!-- 고르기 창 (강탈 대상 카드 · 잡화점 · 킷 칼슨 · 나가기 확인) -->
+<div id="pop" class="modal" hidden><div class="pop-box poster" id="popBox"></div></div>
+
 <div class="tip" id="tip" hidden></div>
+<div id="toast" class="toast"></div>
 
-<!-- 창 -->
-<div class="modal" id="modal" hidden><div class="modal-box" id="modalBox"></div></div>
-<div class="toast" id="toast"></div>
+<!-- 같은 방 사람끼리 하는 채팅 — 봇만 있는 방에서는 뜨지 않는다 (로보77 · 바퀴벌레 포커와 같다) -->
+<button id="chatBtn" class="chat-btn" hidden aria-label="채팅 열기">💬<span class="chat-n" id="chatN" hidden></span></button>
+<div id="chatPeek" class="chat-peek" hidden role="status" aria-live="polite"></div>
+<section id="chat" class="chat" hidden aria-label="채팅">
+  <header class="chat-head"><b>채팅</b><span class="chat-sub" id="chatWho"></span><button class="x" id="chatX" aria-label="닫기">✕</button></header>
+  <div class="chat-log" id="chatLog"></div>
+  <form class="chat-in" id="chatForm">
+    <input id="chatText" maxlength="200" placeholder="테이블 사람들에게 (손에 든 카드는 비밀!)" autocomplete="off">
+    <button class="wbtn sm red" type="submit"><span>보내기</span></button>
+  </form>
+</section>
 
-<script type="module" src="app.js"></script>
+<script type="module" src="/app.js"></script>
+
+<!-- 방문 통계와 오류 수집 — 허브와 같은 곳으로 모인다 (로보77 · 바퀴벌레 포커와 같다).
+     GoatCounter 는 쿠키를 쓰지 않고 개인을 가려내지 않는다. 오류는 메시지·파일·줄만 보낸다. -->
+<script>
+(function () {
+  var APP = "bang";
+  if (/^(localhost|127\.)/.test(location.hostname)) { window.norara = { ev: function () {}, live: function () {} }; return; }
+  window.goatcounter = { path: APP };
+  var sc = document.createElement("script");
+  sc.async = true;
+  sc.src = "https://gc.zgo.at/count.js";
+  sc.setAttribute("data-goatcounter", "https://41ways.goatcounter.com/count");
+  document.head.appendChild(sc);
+  var sid = (function () {
+    try {
+      var s = sessionStorage.getItem("norara.sid");
+      if (!s) { s = Math.random().toString(36).slice(2, 12) + Date.now().toString(36); sessionStorage.setItem("norara.sid", s); }
+      return s;
+    } catch (e) { return Math.random().toString(36).slice(2, 14); }
+  })();
+  var playing = false;
+  function beat(st) {
+    try { navigator.sendBeacon("https://norara-errors.41ways.workers.dev/beat", JSON.stringify({ app: APP, sid: sid, st: st || (playing ? "play" : "look") })); } catch (e) {}
+  }
+  window.norara = {
+    ev: function (name, o) {
+      o = o || {}; o.app = APP; o.ev = name;
+      try { navigator.sendBeacon("https://norara-errors.41ways.workers.dev/ev", JSON.stringify(o)); } catch (e) {}
+      if (name === "start") window.norara.live(true);
+      if (name === "end") window.norara.live(false);
+    },
+    live: function (on) { on = !!on; if (on === playing) return; playing = on; if (document.visibilityState === "visible") beat(); }
+  };
+  setTimeout(function () { if (document.visibilityState === "visible") beat(); }, 2000);
+  setInterval(function () { if (document.visibilityState === "visible") beat(); }, 60000);
+  document.addEventListener("visibilitychange", function () { beat(document.visibilityState === "hidden" ? "gone" : null); });
+  addEventListener("pagehide", function () { beat("gone"); });
+  var came = Date.now(), told = false;
+  function leaving() { if (told) return; told = true; var sec = Math.round((Date.now() - came) / 1000); if (sec >= 5) window.norara.ev("visit", { sec: sec }); }
+  addEventListener("pagehide", leaving);
+  document.addEventListener("visibilitychange", function () { if (document.visibilityState === "hidden") leaving(); });
+  var left = 5;
+  function send(o) {
+    if (left-- <= 0) return;
+    o.app = APP; o.page = location.pathname + location.search;
+    try { navigator.sendBeacon("https://norara-errors.41ways.workers.dev/report", JSON.stringify(o)); } catch (e) {}
+  }
+  addEventListener("error", function (e) { if (!e.message) return; send({ msg: e.message, src: e.filename, line: e.lineno, col: e.colno, stack: e.error && e.error.stack }); });
+  addEventListener("unhandledrejection", function (e) { var r = e.reason; send({ msg: "처리되지 않은 거절: " + ((r && r.message) || r), stack: r && r.stack }); });
+})();
+</script>
 </body>
 </html>

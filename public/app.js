@@ -1,750 +1,1013 @@
 /**
- * 뱅! — 화면. 규칙은 서버가 쥐고 있고, 여기는 받은 것을 그리고 누른 것을 보낸다.
+ * 뱅! — 화면. 규칙은 서버가 쥐고, 여기서는 받은 것을 그리고 누른 것을 보낸다.
+ * 접속 · 재접속 · 열린 방 목록 · 관전 · 채팅은 허브의 다른 게임(로보77 · 바퀴벌레 포커)과 같은 짜임이다.
  *
- * 화면 넷: 시작(이름) → 대기방(방 목록 · 잡담) → 방(자리 · 봇 · 설정 · 채팅) → 판
- * 판에서 누를 수 있는 것은 서버가 보내 준 moves(낼 수 있는 카드와 대상)만 밝힌다.
+ * 판에서는 서버가 보낸 상태를 한 통씩 줄 세워 그린다. 연출(fx)이 딸려 오면 총알이 날아가고
+ * "BANG!"이 터지는 것을 다 보여 준 뒤에 다음 상태로 넘어간다 — 서버도 그만큼 봇을 기다리게 한다.
  */
 import { KINDS, CHARS, ROLES, SUITS, RANKS, DECK } from './cards.js';
 
 const $ = s => document.querySelector(s);
+const $$ = s => Array.from(document.querySelectorAll(s));
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const store = {
-  get(k) { try { return localStorage.getItem('bang.' + k); } catch (_) { return null; } },
-  set(k, v) { try { localStorage.setItem('bang.' + k, v); } catch (_) {} },
+const wait = ms => new Promise(r => setTimeout(r, ms));
+/** 조사 — 받침이 있으면 a, 없으면 b */
+const josa = (w, a, b) => { const s = String(w), ch = s.charCodeAt(s.length - 1); return (ch >= 0xac00 && ch <= 0xd7a3 && (ch - 0xac00) % 28) ? a : b; };
+const ls = { get(k) { try { return localStorage.getItem(k); } catch (_) { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (_) {} } };
+const ss = { get(k) { try { return sessionStorage.getItem('bang.' + k); } catch (_) { return null; } }, set(k, v) { try { sessionStorage.setItem('bang.' + k, v); } catch (_) {} }, del(k) { try { sessionStorage.removeItem('bang.' + k); } catch (_) {} } };
+
+const CHAR_IMG = c => `/img/chars/${c}.webp`;
+const ROLE_IMG = r => `/img/roles/${r}.webp`;
+const CARD_IMG = k => `/img/cards/${k}.webp`;
+const ICON = n => `/img/ui/icons/${n}.webp`;
+const ROLE_EMO = { sheriff: '⭐', deputy: '🔰', outlaw: '💀', renegade: '🎭' };
+const EMO = ['🤠', '😏', '🤔', '😱', '😤', '👏'];
+/** 연출 한 가지가 걸리는 시간 — src/hub.js 의 FX_MS 와 같아야 한다 */
+const FX_MS = {
+  turn: 1300, shot: 900, hurt: 650, heal: 600, dodge: 750, flip: 1600, boom: 1600, die: 2400,
+  jailed: 1300, gatling: 1100, indians: 1100, play: 700, equip: 700, steal: 800, lose: 700,
+  store: 1000, take: 550, draw: 450, show: 1100, pass: 900, spend: 500, discard: 450, over: 1500, reshuffle: 800,
 };
-const ROLE_ICON = { sheriff: '⭐', deputy: '🔰', outlaw: '💀', renegade: '🎭' };
-const CHAR_IMG = c => `img/chars/${c}.webp`;
-const ROLE_IMG = r => `img/roles/${r}.webp`;
-const CARD_IMG = k => `img/cards/${k}.webp`;
-const isMobile = () => matchMedia('(max-width: 900px)').matches;
 
-/* ───────────── 상태 ───────────── */
-const S = {
-  pid: store.get('pid'), name: store.get('name') || '',
-  view: 'title', lobby: null, room: null, roomChat: [], lobbyChat: [],
-  g: null, me: null, auto: false, timer: null,
-  sel: [], mode: null,            // mode: 'sid' (시드 2장 고르기)
-  seenGame: null, prevHand: new Set(), lastSeq: 0,
+/* 그림을 미리 받아 둔다 — 처음 뒤집힐 때 빈 칸이 보이지 않게 */
+setTimeout(() => {
+  const list = [...Object.keys(KINDS).map(CARD_IMG), ...Object.keys(CHARS).map(CHAR_IMG), ...Object.keys(ROLES).map(ROLE_IMG), ROLE_IMG('back'), CARD_IMG('back')];
+  for (const s of list) { const i = new Image(); i.src = s; }
+}, 800);
+
+/* ─────────────────────────── 상태 ─────────────────────────── */
+let ws = null, S = null, me = null, specId = null, specCtx = null, specRejoin = false, skew = 0;
+const isSpec = () => !!S && S.role === 'spec';
+window.__S = () => S;
+
+/* ─────────────────────────── 소리 — 처음엔 꺼져 있다 ─────────────────────────── */
+let muted = ls.get('bang.mute') !== '0';
+let actx = null;
+const shotAudio = new Audio('/sound/shot.mp3'); shotAudio.preload = 'auto';
+function ac() {
+  if (muted) return null;
+  try { if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)(); if (actx.state === 'suspended') actx.resume(); return actx; } catch (_) { return null; }
+}
+function tone(f, t0, dur, type = 'sine', vol = .1, f2) {
+  const c = ac(); if (!c) return;
+  const o = c.createOscillator(), g = c.createGain();
+  o.type = type; o.frequency.setValueAtTime(f, c.currentTime + t0);
+  if (f2) o.frequency.exponentialRampToValueAtTime(f2, c.currentTime + t0 + dur);
+  g.gain.setValueAtTime(0, c.currentTime + t0); g.gain.linearRampToValueAtTime(vol, c.currentTime + t0 + .01);
+  g.gain.exponentialRampToValueAtTime(.0008, c.currentTime + t0 + dur);
+  o.connect(g).connect(c.destination); o.start(c.currentTime + t0); o.stop(c.currentTime + t0 + dur + .05);
+}
+function noise(t0, dur, vol = .2, freq = 1200) {
+  const c = ac(); if (!c) return;
+  const len = Math.floor(c.sampleRate * dur), buf = c.createBuffer(1, len, c.sampleRate), d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2);
+  const s = c.createBufferSource(); s.buffer = buf;
+  const f = c.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = freq;
+  const g = c.createGain(); g.gain.value = vol;
+  s.connect(f).connect(g).connect(c.destination); s.start(c.currentTime + t0);
+}
+const sfx = {
+  shot: () => { if (muted) return; const a = shotAudio.cloneNode(); a.volume = .5; a.play().catch(() => noise(0, .25, .4, 3000)); },
+  pop: () => tone(740, 0, .07, 'triangle', .06, 980),
+  card: () => noise(0, .12, .12, 2600),
+  turn: () => { tone(784, 0, .14, 'triangle', .08); tone(1046, .12, .22, 'triangle', .08); },
+  heal: () => { tone(523, 0, .12); tone(659, .09, .12); tone(784, .18, .2); },
+  hurt: () => tone(170, 0, .28, 'sawtooth', .06, 110),
+  miss: () => tone(1500, 0, .1, 'sine', .04, 700),
+  boom: () => noise(0, 1.1, .6, 420),
+  die: () => { tone(220, 0, .3, 'triangle', .08); tone(165, .25, .5, 'triangle', .08); },
+  win: () => [523, 659, 784, 1046].forEach((f, i) => tone(f, i * .14, .3, 'triangle', .07)),
 };
+function syncMute() { $$('[data-mute]').forEach(b => { b.textContent = muted ? '🔇' : '🔊'; b.setAttribute('aria-label', muted ? '소리 켜기' : '소리 끄기'); }); }
+$$('[data-mute]').forEach(b => b.onclick = () => { muted = !muted; ls.set('bang.mute', muted ? '1' : '0'); syncMute(); if (!muted) sfx.pop(); });
+syncMute();
 
-/* ───────────── 소리 ───────────── */
-const Snd = (() => {
-  let ctx = null, muted = store.get('mute') === '1';
-  const shot = new Audio('sound/shot.mp3'); shot.preload = 'auto';
-  const ac = () => { if (!ctx) try { ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch (_) {} return ctx; };
-  const tone = (f, d, type = 'sine', g = 0.08, delay = 0) => {
-    const c = ac(); if (!c || muted) return;
-    const o = c.createOscillator(), v = c.createGain();
-    o.type = type; o.frequency.value = f;
-    const t = c.currentTime + delay;
-    v.gain.setValueAtTime(g, t); v.gain.exponentialRampToValueAtTime(0.0001, t + d);
-    o.connect(v).connect(c.destination); o.start(t); o.stop(t + d + .02);
-  };
-  const noise = (d, g = .3, lp = 900) => {
-    const c = ac(); if (!c || muted) return;
-    const b = c.createBuffer(1, c.sampleRate * d, c.sampleRate), a = b.getChannelData(0);
-    for (let i = 0; i < a.length; i++) a[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / a.length, 2);
-    const s = c.createBufferSource(), f = c.createBiquadFilter(), v = c.createGain();
-    s.buffer = b; f.type = 'lowpass'; f.frequency.value = lp; v.gain.value = g;
-    s.connect(f).connect(v).connect(c.destination); s.start();
-  };
-  return {
-    get muted() { return muted; },
-    toggle() { muted = !muted; store.set('mute', muted ? '1' : '0'); return muted; },
-    shot(vol = .55) { if (muted) return; const a = shot.cloneNode(); a.volume = vol; a.play().catch(() => noise(.25, .5, 2500)); },
-    click() { tone(660, .06, 'triangle', .05); },
-    turn() { tone(784, .14, 'triangle', .08); tone(1046, .22, 'triangle', .08, .12); },
-    heal() { tone(523, .12, 'sine', .07); tone(659, .12, 'sine', .07, .09); tone(784, .2, 'sine', .07, .18); },
-    hurt() { tone(160, .25, 'sawtooth', .07); },
-    boom() { noise(1.1, .7, 500); },
-    miss() { tone(1400, .12, 'sine', .04); tone(900, .16, 'sine', .03, .05); },
-    die() { tone(220, .3, 'triangle', .08); tone(165, .5, 'triangle', .08, .25); },
-    win() { [523, 659, 784, 1046].forEach((f, i) => tone(f, .3, 'triangle', .07, i * .14)); },
-    unlock() { ac(); if (ctx && ctx.state === 'suspended') ctx.resume(); },
-  };
-})();
-addEventListener('pointerdown', () => Snd.unlock(), { once: true });
-$('#muteBtn').textContent = Snd.muted ? '🔇' : '🔊';
-$('#muteBtn').onclick = () => { $('#muteBtn').textContent = Snd.toggle() ? '🔇' : '🔊'; };
+/* ─────────────────────────── 접속 (로보77 과 같다) ─────────────────────────── */
+let pingT = null, resting = false, wokeUp = false, restWhy = 0;
+function resume() { connect(() => { const code = ss.get('code'), token = ss.get('token'); if (code && token) send({ t: 'resume', code, token }); }); }
+function wake(e) {
+  if (!resting) return;
+  if (e.type === 'visibilitychange' && (document.hidden || restWhy === 4001)) return;
+  resting = false; $('#toast').classList.remove('on');
+  if (ss.get('code') && ss.get('token')) { wokeUp = true; resume(); }
+  else if (specCtx) rejoinSpec();
+  else if (watching) watchRooms(true);
+}
+['pointerdown', 'keydown'].forEach(t => addEventListener(t, wake, true));
+document.addEventListener('visibilitychange', wake);
 
-/* ───────────── 연결 ───────────── */
-let ws = null, wsTry = 0, pingT = null, wantOpen = false;
-function connect() {
-  wantOpen = true;
-  const url = location.origin.replace(/^http/, 'ws') + '/ws';
-  ws = new WebSocket(url);
-  $('#net').hidden = false; $('#net').textContent = '연결 중…';
-  ws.onopen = () => {
-    wsTry = 0; $('#net').hidden = true;
-    send({ t: 'hello', pid: S.pid, name: S.name });
-    clearInterval(pingT); pingT = setInterval(() => send({ t: 'ping' }), 25000);
+function connect(onOpen) {
+  if (ws && ws.readyState === 1) { onOpen && onOpen(); return; }
+  if (ws) { ws.onopen = ws.onmessage = ws.onclose = null; try { ws.close(); } catch (_) {} }
+  const sock = ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`);
+  ws.onopen = () => { if (sock !== ws) return; clearInterval(pingT); pingT = setInterval(() => send({ t: 'ping' }), 25_000); onOpen && onOpen(); };
+  ws.onmessage = e => {
+    if (sock !== ws) return;
+    let m; try { m = JSON.parse(e.data); } catch (_) { return; }
+    if (m.t === 'moved' || m.t === 'idle') { sock.why = m.t; sock.onclose({ code: m.t === 'moved' ? 4001 : 4000 }); ws = null; try { sock.close(); } catch (_) {} return; }
+    handle(m);
   };
-  ws.onmessage = e => { let m; try { m = JSON.parse(e.data); } catch (_) { return; } onMsg(m); };
-  ws.onclose = ev => {
+  ws.onclose = e => {
+    if (sock !== ws) return;
     clearInterval(pingT);
-    if (!wantOpen) return;
-    if (ev.code === 4001) { $('#net').hidden = false; $('#net').textContent = '다른 창에서 접속 중'; return; }
-    $('#net').hidden = false;
-    $('#net').textContent = ev.code === 4000 ? '오래 쉬어서 끊겼습니다 — 누르면 다시 연결' : '끊김 — 다시 연결하는 중…';
-    if (ev.code === 4000) { $('#net').onclick = () => { $('#net').onclick = null; connect(); }; return; }
-    setTimeout(connect, Math.min(8000, 500 * 2 ** wsTry++));
+    const code = sock.why === 'moved' ? 4001 : sock.why === 'idle' ? 4000 : e.code;
+    if (code === 4000 || code === 4001) {
+      resting = true; restWhy = code;
+      const t = $('#toast');
+      t.textContent = code === 4000 ? '한동안 조작이 없어서 연결을 쉬고 있어요. 아무 곳이나 누르면 다시 붙어요.' : '다른 창에서 이 자리를 이어받았어요. 여기서 계속하려면 아무 곳이나 누르세요.';
+      t.classList.add('on'); clearTimeout(toastT);
+      return;
+    }
+    if (watching && !ss.get('code')) setTimeout(() => { if (watching && (!ws || ws.readyState > 1)) watchRooms(true); }, 3000);
+    else if (ss.get('code') && ss.get('token')) { toast('연결이 끊겼어요. 다시 붙는 중…'); setTimeout(resume, 1200); }
+    else if (specCtx) { toast('연결이 끊겼어요. 다시 붙는 중…'); setTimeout(() => { if (specCtx && (!ws || ws.readyState > 1)) rejoinSpec(); }, 1200); }
+    else show('title');
   };
 }
-function send(o) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); }
+function rejoinSpec() { if (!specCtx) return; specRejoin = true; connect(() => send({ t: 'join', code: specCtx.code, name: specCtx.name })); }
+const send = o => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); };
 
-function onMsg(m) {
+let leaving = false;
+function handle(m) {
+  if (leaving) { if (m.t !== 'left' && m.t !== 'err') return; leaving = false; if (m.t === 'err') return; }
   switch (m.t) {
-    case 'hi':
-      S.pid = m.pid; S.name = m.name; store.set('pid', m.pid); store.set('name', m.name);
-      $('#meName').textContent = m.name;
+    case 'welcome':
+      wokeUp = false; entering = 0;
+      if (m.code !== chatRoom) { chatRoom = m.code; chatReset(); }
+      specRejoin = false;
+      if (m.role === 'spec') {
+        me = null; specId = m.specId; specCtx = { code: m.code, name: myName() };
+        ss.del('code'); ss.del('token');
+      } else {
+        me = m.you; specId = null; specCtx = null;
+        ss.set('code', m.code); ss.set('token', m.token);
+        if (m.seated) toast('자리가 났어요 — 이제 같이 해요');
+      }
+      history.replaceState(null, '', `?r=${m.code}`);
       break;
-    case 'lobby':
-      S.lobby = m;
-      if (m.chat) { S.lobbyChat = m.chat; S.room = null; S.g = null; closeModal(); go('lobby'); renderChat('lobby'); }
-      renderLobby();
+    case 'chat': addChat(m); break;
+    case 'rooms': if (watching) renderRooms(m); break;
+    case 'state': onState(m); break;
+    case 'react': floatEmo(m.from, m.e); break;
+    case 'err':
+      entering = 0;
+      toast(m.fatal && wokeUp ? '오래 비워 둔 사이 테이블이 정리됐어요. 새로 열어 주세요.' : m.msg);
+      if (m.fatal) { ss.del('code'); ss.del('token'); specCtx = null; specId = null; S = null; show('setup'); }
+      else if (specRejoin) { specRejoin = false; specCtx = null; specId = null; show('setup'); }
+      wokeUp = false;
       break;
-    case 'room': {
-      S.room = m.room;
-      if (m.chat) { S.roomChat = m.chat; renderChat('room'); }
-      if (m.room.phase === 'wait') { S.g = null; if (S.view === 'game') closeModal(); go('room'); }
-      renderRoom();
+    case 'left':
+      ss.del('code'); ss.del('token'); specCtx = null; specId = null; S = null;
+      history.replaceState(null, '', location.pathname);
+      show('setup');
       break;
-    }
-    case 'chat':
-      if (m.ch === 'lobby') { S.lobbyChat.push(m.m); addChat('lobby', m.m); }
-      else { S.roomChat.push(m.m); addChat('room', m.m); }
-      break;
-    case 'game': onGame(m); break;
-    case 'err': toast(m.m); break;
-    case 'kicked': toast(m.m); wantOpen = false; break;
-    case 'idle': break;
   }
 }
 
-/* ───────────── 화면 전환 ───────────── */
-function go(v) {
-  if (S.view === v) return;
-  S.view = v;
-  document.body.dataset.view = v;
+/* ─────────────────────────── 화면 ─────────────────────────── */
+let screen = '';
+function show(id) {
+  if (screen === id) return;
+  screen = id;
+  $$('.screen').forEach(s => s.classList.toggle('on', s.id === id));
+  document.body.dataset.screen = id;
+  if ((id === 'setup') !== watching) watchRooms(id === 'setup');
+  if (id === 'title' || id === 'setup') { chatRoom = null; chatReset(); $('#chatBtn').hidden = true; queue.length = 0; drawn = null; gateShown = false; }
   hideTip();
-  if (v === 'game') requestAnimationFrame(layoutSeats);
+  if (id === 'game') requestAnimationFrame(layout);
 }
+let toastT = null;
+function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('on'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('on'), 2800); }
 
-/* 시작 */
-$('#nameIn').value = S.name;
-$('#nameForm').onsubmit = e => {
+const playerOf = id => (S ? S.players.find(p => p.id === id) : null);
+const gp = id => (drawn && drawn.g ? drawn.g.players.find(p => p.id === id) : null);
+const nameOf = id => { const p = gp(id) || playerOf(id); return p ? p.name : '?'; };
+
+/* ─────────────────────────── 채팅 (로보77 과 같다) ─────────────────────────── */
+let chatUnread = 0, chatRoom = null, chatAway = 0, chatPeekT = 0;
+const chatTitle0 = document.title;
+function chatReset() { $('#chatLog').textContent = ''; $('#chat').hidden = true; chatUnread = 0; chatBadge(); chatPeekOff(); chatAway = 0; chatTitle(); }
+function chatOpen(on) {
+  $('#chat').hidden = !on;
+  if (!on) return;
+  chatUnread = 0; chatBadge(); chatPeekOff();
+  $('#chatText').focus();
+  const log = $('#chatLog'); log.scrollTop = log.scrollHeight;
+}
+function addChat(m) {
+  const log = $('#chatLog');
+  const d = document.createElement('p');
+  const mine = !m.sys && m.from === (me != null ? me : specId);
+  d.className = 'chat-msg' + (mine ? ' mine' : '') + (m.sys ? ' sys' : '');
+  d.innerHTML = m.sys ? esc(m.text) : `<b>${esc(m.name)}${m.spec ? ' (관전)' : ''}</b>${esc(m.text)}`;
+  log.appendChild(d);
+  while (log.children.length > 60) log.removeChild(log.firstChild);
+  log.scrollTop = log.scrollHeight;
+  if (mine || m.sys) return;
+  if ($('#chat').hidden) { chatUnread++; chatBadge(); chatPeek(m.name, m.text); }
+  if (document.hidden || !document.hasFocus()) { chatAway++; chatTitle(); }
+  if (screen === 'game' && m.from != null && !m.spec) bubble(m.from, m.text);
+}
+function chatBadge() { const n = $('#chatN'); n.textContent = chatUnread > 99 ? '99+' : chatUnread; n.hidden = !chatUnread; if (chatUnread) { n.classList.remove('pop'); void n.offsetWidth; n.classList.add('pop'); } }
+function chatPeek(name, text) {
+  const p = $('#chatPeek');
+  p.innerHTML = `<b>${esc(name)}</b>${esc(text)}`;
+  p.classList.remove('bye'); p.hidden = false;
+  p.style.animation = 'none'; void p.offsetWidth; p.style.animation = '';
+  clearTimeout(chatPeekT);
+  chatPeekT = setTimeout(() => { p.classList.add('bye'); chatPeekT = setTimeout(chatPeekOff, 260); }, Math.min(6000, Math.max(3000, 1200 + 70 * text.length)));
+}
+function chatPeekOff() { clearTimeout(chatPeekT); const p = $('#chatPeek'); p.hidden = true; p.classList.remove('bye'); }
+function chatTitle() { document.title = (chatAway ? `(${chatAway > 99 ? '99+' : chatAway}) ` : '') + chatTitle0; }
+function chatBack() { if (chatAway && !document.hidden && document.hasFocus()) { chatAway = 0; chatTitle(); } }
+document.addEventListener('visibilitychange', chatBack);
+addEventListener('focus', chatBack);
+function syncChatVisible() {
+  const humans = S ? S.players.filter(p => !p.bot).length + (S.specs ? S.specs.length : 0) : 0;
+  const on = humans > 1;
+  $('#chatBtn').hidden = !on;
+  if (!on) { $('#chat').hidden = true; chatPeekOff(); } else $('#chatWho').textContent = `${humans}명`;
+}
+$('#chatBtn').onclick = () => chatOpen($('#chat').hidden);
+$('#chatPeek').onclick = () => chatOpen(true);
+$('#chatX').onclick = () => chatOpen(false);
+$('#chatForm').addEventListener('submit', e => {
   e.preventDefault();
-  const n = $('#nameIn').value.trim();
-  if (!n) return;
-  S.name = n; store.set('name', n);
-  Snd.click();
-  if (ws && ws.readyState === 1) send({ t: 'name', name: n }); else connect();
-  go('lobby');
-};
-
-$('#renameBtn').onclick = () => {
-  openModal(`<h3>이름 바꾸기</h3><form id="rnF" class="name-form"><input id="rnI" maxlength="12" value="${esc(S.name)}"><button class="btn">바꾸기</button></form>`);
-  $('#rnI').focus(); $('#rnI').select();
-  $('#rnF').onsubmit = e => { e.preventDefault(); const n = $('#rnI').value.trim(); if (n) { S.name = n; store.set('name', n); send({ t: 'name', name: n }); } closeModal(); };
-};
-
-/* ───────────── 대기방 ───────────── */
-$('#createForm').onsubmit = e => { e.preventDefault(); Snd.click(); send({ t: 'create', title: $('#titleIn').value }); $('#titleIn').value = ''; };
-$('#codeForm').onsubmit = e => { e.preventDefault(); const c = $('#codeIn').value.trim().toUpperCase(); if (c) send({ t: 'join', code: c }); $('#codeIn').value = ''; };
-
-function renderLobby() {
-  const L = S.lobby; if (!L) return;
-  const list = $('#roomList');
-  if (!L.rooms.length) list.innerHTML = '<div class="empty">아직 열린 방이 없습니다.<br>방을 만들고 봇과 먼저 해 보세요!</div>';
-  else list.innerHTML = L.rooms.map(r => `
-    <div class="room-item">
-      <div class="rt">${esc(r.title)}<span class="badge ${r.phase !== 'wait' ? 'play' : ''}">${r.phase === 'wait' ? '모집 중' : r.phase === 'play' ? '게임 중' : '끝남'}</span></div>
-      <button class="btn ${r.phase === 'wait' ? '' : 'ghost'} sm" data-join="${esc(r.code)}">${r.phase === 'wait' ? (r.n >= r.max ? '꽉 참' : '입장') : '구경'}</button>
-      <div class="rm">#${esc(r.code)} · 방장 ${esc(r.host)} · ${r.n}/${r.max}명 (사람 ${r.humans})${r.watch ? ' · 구경 ' + r.watch : ''}</div>
-    </div>`).join('');
-  list.querySelectorAll('[data-join]').forEach(b => b.onclick = () => { Snd.click(); send({ t: 'join', code: b.dataset.join }); });
-  const on = L.online || [];
-  $('#online').textContent = `접속 ${on.length}명`;
-  $('#online').title = on.map(u => u.name).join(', ');
-}
-
-/* ───────────── 채팅 ───────────── */
-const fmtT = ts => { const d = new Date(ts); return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); };
-const chatHtml = m => m.sys
-  ? `<div class="m sys">${esc(m.text)}</div>`
-  : `<div class="m ${m.pid === S.pid ? 'mine' : ''}"><b>${esc(m.name)}</b>${esc(m.text)}<time>${fmtT(m.ts)}</time></div>`;
-function renderChat(ch) {
-  const logs = ch === 'lobby' ? [$('#lobbyChat')] : [$('#roomChat'), $('#gameChat')];
-  const arr = ch === 'lobby' ? S.lobbyChat : S.roomChat;
-  for (const el of logs) { el.innerHTML = arr.map(chatHtml).join(''); el.scrollTop = el.scrollHeight; }
-}
-function addChat(ch, m) {
-  const logs = ch === 'lobby' ? [$('#lobbyChat')] : [$('#roomChat'), $('#gameChat')];
-  for (const el of logs) {
-    const stick = el.scrollTop + el.clientHeight > el.scrollHeight - 30;
-    el.insertAdjacentHTML('beforeend', chatHtml(m));
-    while (el.children.length > 120) el.firstChild.remove();
-    if (stick) el.scrollTop = el.scrollHeight;
-  }
-  if (ch === 'room' && S.view === 'game' && $('.side').dataset.tab !== 'chat' && !m.sys) $('#chatDot').hidden = false;
-}
-document.querySelectorAll('.chat-form').forEach(f => f.onsubmit = e => {
-  e.preventDefault();
-  const i = f.querySelector('input'); const text = i.value.trim();
+  const box = $('#chatText'), text = box.value.trim();
   if (!text) return;
-  send({ t: 'chat', text }); i.value = '';
+  send({ t: 'chat', text }); box.value = '';
 });
 
-/* ───────────── 방 대기실 ───────────── */
-$('#leaveBtn').onclick = () => { Snd.click(); send({ t: 'leave' }); };
-$('#addBotBtn').onclick = () => { Snd.click(); send({ t: 'addbot' }); };
-$('#startBtn').onclick = () => { Snd.click(); send({ t: 'start' }); };
-$('#sitBtn').onclick = () => send({ t: 'sit' });
-for (const [id, key] of [['#optMax', 'max'], ['#optTurn', 'turn'], ['#optReact', 'react']]) {
-  $(id).onchange = () => send({ t: 'opt', [key]: Number($(id).value) });
+/* ─────────────────────────── 타이틀 · 방 고르기 ─────────────────────────── */
+const myName = () => ($('#gName').value || '').trim().slice(0, 12);
+$('#bBegin').onclick = () => { show('setup'); setTimeout(() => { if (!myName()) $('#gName').focus(); }, 80); ac(); sfx.pop(); };
+$('#bBack').onclick = () => show('title');
+
+let entering = 0;
+function enter(msg) {
+  if (!myName()) { toast('이름을 먼저 적어 주세요.'); $('#gName').focus(); $('#gName').classList.remove('need'); void $('#gName').offsetWidth; $('#gName').classList.add('need'); return; }
+  if (Date.now() - entering < 4000) return;
+  entering = Date.now();
+  ss.del('code'); ss.del('token');
+  ls.set('bang.name', myName());
+  sfx.pop();
+  connect(() => send(Object.assign(msg, { name: myName() })));
 }
-
-function renderRoom() {
-  const R = S.room; if (!R) return;
-  const host = R.host === S.pid;
-  $('#roomTitle').textContent = R.title;
-  $('#roomCode').textContent = R.code;
-  const slots = [];
-  for (let i = 0; i < R.opts.max; i++) {
-    const s = R.seats[i];
-    if (!s) { slots.push(`<div class="slot free"><div class="sn">빈 자리</div>${host ? '<button class="btn ghost sm" data-addbot>🤖 봇</button>' : ''}</div>`); continue; }
-    const isHost = s.id === R.host;
-    slots.push(`<div class="slot ${s.on ? '' : 'off'}">
-      ${isHost ? '<span class="crown">👑</span>' : ''}
-      ${host && s.id !== S.pid ? `<button class="kick" data-kick="${esc(s.id)}" title="내보내기">✕</button>` : ''}
-      <div class="sn">${s.bot ? '🤖 ' : '🤠 '}${esc(s.name)}</div>
-      <div class="ss">${s.bot ? '봇' : s.id === S.pid ? '나' : s.on ? '준비' : '연결 끊김'}</div></div>`);
-  }
-  $('#seatList').innerHTML = slots.join('');
-  $('#seatList').querySelectorAll('[data-kick]').forEach(b => b.onclick = () => send({ t: 'kick', pid: b.dataset.kick }));
-  $('#seatList').querySelectorAll('[data-addbot]').forEach(b => b.onclick = () => send({ t: 'addbot' }));
-  $('#watchers').textContent = R.watchers.length ? '구경: ' + R.watchers.join(', ') : '';
-  $('#optMax').value = R.opts.max; $('#optTurn').value = R.opts.turn; $('#optReact').value = R.opts.react;
-  $('#hostOpts').classList.toggle('locked', !host);
-  $('#addBotBtn').hidden = !host || R.seats.length >= R.opts.max;
-  $('#startBtn').hidden = !host;
-  const seated = R.seats.some(s => s.id === S.pid);
-  $('#sitBtn').hidden = seated;
-  const n = R.seats.length;
-  $('#roomHint').textContent = host
-    ? (n < R.min ? `${R.min}명이 안 되면 모자란 자리는 봇으로 채워 시작합니다.` : `${n}명으로 시작합니다. 자리 순서와 역할은 무작위로 정해집니다.`)
-    : '방장이 시작하기를 기다리는 중…';
+$('#bCreate').onclick = () => enter({ t: 'create', priv: $('#gPriv').checked, spec: $('#gSpec').checked });
+function doJoin() {
+  const code = ($('#gCode').value || '').trim().toUpperCase();
+  if (code.length !== 4) return toast('네 글자 방 코드를 넣어 주세요.');
+  enter({ t: 'join', code });
 }
+$('#bJoin').onclick = doJoin;
+$('#gCode').onkeydown = e => { if (e.key === 'Enter' && !e.isComposing) doJoin(); };
+$('#gName').onkeydown = e => { if (e.key === 'Enter' && !e.isComposing) $('#bCreate').click(); };
 
-/* ───────────── 판 ───────────── */
-$('#exitBtn').onclick = () => {
-  if (S.g && S.g.v.over) { send({ t: 'leave' }); return; }
-  openModal(`<h3>나가기</h3><p style="text-align:center">판이 끝나기 전에 나가면 남은 판은 봇이 대신합니다.<br>같은 방 번호로 다시 들어오면 자리로 돌아올 수 있어요.</p>
-    <div class="acts"><button class="btn ghost" data-x>계속하기</button><button class="btn" id="exitYes">나가기</button></div>`);
-  $('#exitYes').onclick = () => { closeModal(); send({ t: 'leave' }); };
-};
-document.querySelectorAll('.side-tabs [data-tab]').forEach(b => b.onclick = () => {
-  document.querySelectorAll('.side-tabs [data-tab]').forEach(x => x.classList.toggle('on', x === b));
-  $('.side').dataset.tab = b.dataset.tab;
-  if (b.dataset.tab === 'chat') { $('#chatDot').hidden = true; const c = $('#gameChat'); c.scrollTop = c.scrollHeight; }
-});
-$('.side').dataset.tab = 'log';
-
-function onGame(m) {
-  const first = !S.g || m.reset;
-  S.g = m; S.me = m.me; S.auto = m.auto;
-  go('game');
-  const v = m.v;
-  const key = (S.room ? S.room.code : '') + ':' + v.players.map(p => p.id).join(',');
-  // 요청이 바뀌면 고른 것을 비운다
-  if (!v.req || v.req.seq !== S.lastSeq) { S.sel = []; S.mode = null; S.lastSeq = v.req ? v.req.seq : 0; }
-  if (m.reset) $('#gameLog').innerHTML = '';
-  addLogs(m.logs);
-  S.timer = v.req && m.left ? { end: Date.now() + m.left * 1000, secs: m.secs, to: v.req.to } : null;
-  render();
-  if (!first) playFx(m.ev || []);
-  if (S.seenGame !== key && m.me && !v.over) { S.seenGame = key; showReveal(); }
-  if (v.over && !S.overShown) { S.overShown = true; setTimeout(showResult, first ? 0 : 1400); }
-  if (!v.over) S.overShown = false;
+let watching = false;
+function watchRooms(on) {
+  watching = on;
+  if (on) connect(() => { if (watching && !ss.get('code')) send({ t: 'rooms' }); });
+  else send({ t: 'unwatch' });
 }
-
-function addLogs(logs) {
-  const el = $('#gameLog');
-  for (const l of logs || []) el.insertAdjacentHTML('beforeend', `<div class="l ${l.cls || ''}">${esc(l.text)}</div>`);
-  while (el.children.length > 300) el.firstChild.remove();
-  el.scrollTop = el.scrollHeight;
-}
-
-const P = id => S.g && S.g.v.players.find(p => p.id === id);
-const mine = () => S.g && S.g.v.req && S.g.v.req.to === S.me;
-const myP = () => S.me && P(S.me);
-
-function render() {
-  if (!S.g) return;
-  renderSeats();
-  renderCenter();
-  renderHand();
-  renderPrompt();
-}
-
-/* 자리 — 나를 아래에 두고 시계 방향(내 왼쪽이 다음 사람)으로 */
-function renderSeats() {
-  const v = S.g.v;
-  const box = $('#seats');
-  const req = v.req;
-  const targets = targetSet();
-  box.innerHTML = v.players.map(p => {
-    const lost = p.max - Math.max(0, p.hp);
-    const hp = Array.from({ length: p.max }, (_, i) => `<i class="${i >= p.hp ? 'lost' : ''}"></i>`).join('');
-    const role = p.role ? `<span class="role ${p.role}" title="${ROLES[p.role].name}">${ROLE_ICON[p.role]}</span>` : '';
-    const cls = ['seat', p.id === v.turn && !v.over ? 'turn' : '', req && req.to === p.id && req.to !== v.turn ? 'asked' : '',
-      p.id === S.me ? 'me' : '', !p.alive ? 'dead' : '', targets.has(p.id) ? 'target' : ''].join(' ');
-    const inRange = myP() && p.id !== S.me && p.alive && p.dist != null && p.dist <= myP().range;
-    return `<div class="${cls}" data-pid="${esc(p.id)}">
-      <div class="por" style="background-image:url(${CHAR_IMG(p.char)})" data-char="${p.char}">${role}</div>
-      <div class="nm">${esc(p.name)}${p.bot ? '<span class="bot">봇</span>' : ''}${p.id === S.me ? ' (나)' : ''}</div>
-      <div class="cn" data-char="${p.char}">${CHARS[p.char].name}${p.role && !p.alive ? ' · ' + ROLES[p.role].name : ''}</div>
-      <div class="hp" title="생명 ${Math.max(0, p.hp)}/${p.max}">${hp}</div>
-      <div class="meta"><span class="hc" title="손에 든 카드">🂠 ${p.hand}</span>${p.dist != null && p.id !== S.me ? `<span title="내가 보는 거리" style="${inRange ? 'background:#c23a2233' : ''}">거리 ${p.dist}</span>` : ''}<span class="rg" title="사거리">🎯 ${p.range}</span></div>
-      <div class="tbl">${p.table.map(c => cardHtml(c, 'mini')).join('')}</div>
-      <div class="ring"><i></i></div>
-    </div>`;
+const ROOM_STATE = { wait: '자리 있음', full: '가득 참', playing: '게임 중' };
+function renderRooms(m) {
+  const list = m.list;
+  const open = list.filter(r => r.state === 'wait' && !r.priv).length;
+  $('#roomCount').textContent = list.length ? `· 열린 테이블 ${open}곳` : '';
+  $('#online').textContent = m.online ? `지금 ${m.online}명이 마을에 있어요` : '';
+  $('#roomEmpty').hidden = list.length > 0;
+  $('#roomList').innerHTML = list.map(r => {
+    let off = false, label = ROOM_STATE[r.state];
+    if (r.priv) off = true;
+    else if (r.state !== 'wait') { if (r.spec !== false) label = r.state === 'playing' ? '게임 중 · 관전' : '가득 참 · 관전'; else off = true; }
+    return `<li><button class="room-row" ${r.priv ? '' : `data-code="${esc(r.code)}"`}${off ? ' disabled' : ''}>
+      <span class="rr-main"><span class="rr-host">${esc(r.host || '이름 없음')}의 테이블</span>
+        <span class="rr-meta">${r.priv ? '비공개' : `<b class="rr-code">${esc(r.code)}</b>`} · ${r.n}/${r.max}명 (사람 ${r.humans})${r.watching ? ` · 관전 ${r.watching}` : ''}</span></span>
+      <span class="rr-st ${esc(r.state)}">${label}</span></button></li>`;
   }).join('');
-  box.querySelectorAll('.seat').forEach(el => {
-    el.onclick = () => clickSeat(el.dataset.pid);
-  });
-  layoutSeats();
+}
+$('#roomList').addEventListener('click', e => {
+  const b = e.target.closest('.room-row');
+  if (!b || b.disabled || !b.dataset.code) return;
+  $('#gCode').value = b.dataset.code; doJoin();
+});
+
+/* ─────────────────────────── 상태 받기 ─────────────────────────── */
+function onState(m) {
+  if (m.now) skew = m.now - Date.now();
+  me = m.role === 'spec' ? null : (m.you != null ? m.you : me);
+  const prev = S;
+  S = m;
+  countGame(prev, m);
+  document.body.classList.toggle('spec', isSpec());
+  syncChatVisible();
+  if (m.phase === 'lobby') { queue.length = 0; drawn = null; gateShown = false; closePop(); show('lobby'); renderLobby(); return; }
+  if (m.phase === 'intro') { queue.length = 0; drawn = null; gateShown = false; show('intro'); renderIntro(); return; }
+  // 판 — 연출을 차례로 보여 주며 그린다
+  if (m.reset && !queue.length) $('#logIn').textContent = '';
+  queue.push(m);
+  pump();
 }
 
-function layoutSeats() {
-  if (!S.g) return;
+let gameAt = 0;
+function countGame(prev, m) {
+  if (!window.norara) return;
+  if (m.role === 'spec') { norara.live(false); return; }
+  norara.live(m.phase === 'playing' || m.phase === 'intro');
+  if (m.hostId !== me) return;
+  const humans = m.players.filter(p => !p.bot).length;
+  if (m.phase === 'intro' && (!prev || prev.phase !== 'intro')) { gameAt = Date.now(); norara.ev('start', { n: humans, p: m.players.length }); }
+  else if (m.phase === 'over' && prev && prev.phase !== 'over' && gameAt) { norara.ev('end', { n: humans, sec: Math.round((Date.now() - gameAt) / 1000) }); gameAt = 0; }
+}
+
+/* ─────────────────────────── 대기실 ─────────────────────────── */
+function renderLobby() {
+  const spec = isSpec(), host = !spec && S.hostId === me;
+  $('#lCode').textContent = S.code;
+  $('#lCount').textContent = `${S.players.length} / ${S.cfg.max}명` + (S.cfg.priv ? ' · 비공개' : '') + (S.specs.length ? ` · 관전 ${S.specs.length}명` : '');
+  $('#lSpecNote').hidden = !spec;
+  const seats = [];
+  for (let i = 0; i < S.cfg.max; i++) {
+    const p = S.players[i];
+    if (!p) { seats.push(`<li class="seat-card free">${host ? '<button class="add-bot" data-add>＋ 봇 앉히기</button>' : '<span class="free-t">빈자리</span>'}</li>`); continue; }
+    const badges = [p.id === S.hostId ? '<i class="bd b-host">방장</i>' : '', p.bot ? '<i class="bd b-bot">봇</i>' : '', !p.bot && !p.connected ? '<i class="bd b-off">끊김</i>' : '', p.id === me ? '<i class="bd b-me">나</i>' : ''].join('');
+    seats.push(`<li class="seat-card ${p.connected ? '' : 'off'} ${p.id === me ? 'is-me' : ''}" data-id="${p.id}">
+      <span class="sc-av">${p.bot ? '🤖' : '🤠'}</span><b class="sc-name">${esc(p.name)}</b><span class="sc-bd">${badges}</span>
+      ${host && p.id !== me ? `<button class="sc-menu" data-menu="${p.id}" aria-label="메뉴">⋯</button>` : ''}</li>`);
+  }
+  $('#lSeats').innerHTML = seats.join('');
+  $('#lHostBox').hidden = !host;
+  $('#lWait').hidden = host;
+  $('#lWait').textContent = spec ? '관전 중 — 방장이 시작하면 구경할 수 있어요' : '방장이 시작하기를 기다리는 중…';
+  for (const [id, v] of [['#segMax', S.cfg.max], ['#segTurn', S.cfg.turn], ['#segReact', S.cfg.react]]) $$(`${id} button`).forEach(b => b.classList.toggle('on', Number(b.dataset.v) === v));
+  $$('#segChars button').forEach(b => b.classList.toggle('on', b.dataset.v === S.cfg.chars));
+  $$('#segMax button').forEach(b => { b.disabled = Number(b.dataset.v) < S.players.length; });
+  $('#tPriv').setAttribute('aria-checked', String(!!S.cfg.priv));
+  $('#tSpec').setAttribute('aria-checked', String(S.cfg.spec !== false));
+  $('#bBot').disabled = S.players.length >= S.cfg.max;
+  const n = S.players.length;
+  $('#bStart').disabled = n < S.min;
+  $('#lHint').textContent = n < S.min ? `${S.min}명부터 시작할 수 있어요 — 빈자리에 봇을 앉혀 보세요.` : `${n}명으로 시작합니다. 자리 순서와 역할은 시작할 때 섞여요.`;
+}
+$('#lSeats').addEventListener('click', e => {
+  if (e.target.closest('[data-add]')) { send({ t: 'addBot' }); sfx.pop(); return; }
+  const mb = e.target.closest('[data-menu]');
+  if (!mb) return;
+  const p = playerOf(Number(mb.dataset.menu));
+  if (!p) return;
+  openPop(`<p class="pop-title">${esc(p.name)}</p><div class="pop-acts">
+    ${!p.bot && p.connected ? '<button class="wbtn" data-do="host"><span>방장 넘기기</span></button>' : ''}
+    <button class="wbtn red" data-do="kick"><span>${p.bot ? '봇 빼기' : '내보내기'}</span></button>
+    <button class="wbtn dark" data-x><span>닫기</span></button></div>`);
+  $$('#popBox [data-do]').forEach(b => b.onclick = () => { send({ t: b.dataset.do === 'host' ? 'host' : 'kick', id: p.id }); closePop(); });
+});
+for (const [id, key] of [['#segMax', 'max'], ['#segTurn', 'turn'], ['#segReact', 'react']]) {
+  $$(`${id} button`).forEach(b => b.onclick = () => { send({ t: 'cfg', [key]: Number(b.dataset.v) }); sfx.pop(); });
+}
+$$('#segChars button').forEach(b => b.onclick = () => { send({ t: 'cfg', chars: b.dataset.v }); sfx.pop(); });
+$('#tPriv').onclick = () => send({ t: 'cfg', priv: S.cfg.priv !== true });
+$('#tSpec').onclick = () => send({ t: 'cfg', spec: S.cfg.spec === false });
+$('#bBot').onclick = () => { send({ t: 'addBot' }); sfx.pop(); };
+$('#bStart').onclick = () => { send({ t: 'start' }); ac(); sfx.pop(); };
+$('#bCopy').onclick = async () => {
+  const url = `${location.origin}${location.pathname}?r=${S.code}`;
+  try { await navigator.clipboard.writeText(url); toast('초대 링크를 복사했어요'); } catch (_) { toast(url); }
+};
+
+/* ─────────────────────────── 역할 · 인물 고르기 ─────────────────────────── */
+let introKey = '';
+function renderIntro() {
+  const I = S.intro;
+  const key = S.code + ':' + S.gameNo;
+  const sh = playerOf(I.sheriff);
+  if (introKey !== key) {
+    introKey = key;
+    $('#iRole').classList.remove('open');
+    setTimeout(() => { $('#iRole').classList.add('open'); sfx.card(); }, 900);   // 뒷면을 먼저 보여 주고 내 역할이 뒤집힌다
+  }
+  if (isSpec()) {
+    $('#iStep').textContent = '역할을 나눠 주는 중 — 구경하는 중이에요';
+    $('#iRole').hidden = true;
+    $('.intro-chars').hidden = true;
+  } else {
+    $('#iRole').hidden = false;
+    $('.intro-chars').hidden = false;
+    const r = I.myRole;
+    $('#iRoleImg').src = ROLE_IMG(r);
+    $('#iRoleName').textContent = ROLES[r].name;
+    $('#iGoal').innerHTML = r === 'sheriff'
+      ? `<b>당신이 보안관입니다.</b> 모두가 알고 있어요.<br>${esc(ROLES[r].goal)} 생명이 1 더 많고, 당신부터 시작합니다.`
+      : `<b>당신은 ${esc(ROLES[r].name)}입니다.</b> ${esc(ROLES[r].goal)}<br>정체는 들키지 않게! 보안관은 <b>${esc(sh ? sh.name : '')}</b> 님이에요.`;
+    $('#iStep').textContent = I.myPick ? '좋아요! 다른 사람들을 기다리는 중' : '당신의 정체와 인물';
+    const pickMode = I.mode === 'pick';
+    $('#iCharT').textContent = pickMode ? (I.myPick ? '고른 인물' : '인물을 한 명 고르세요') : '당신의 인물';
+    $('#bReady').hidden = pickMode || !!I.myPick;
+    const sig = I.offers.join(',') + '|' + (I.myPick || '');
+    if ($('#iChars').dataset.sig !== sig) {
+      $('#iChars').dataset.sig = sig;
+      $('#iChars').innerHTML = I.offers.map(c => `<button class="char-card ${I.myPick === c ? 'picked' : ''} ${I.myPick && I.myPick !== c ? 'dim' : ''} ${I.mode === 'pick' ? 'choose' : 'solo'}" data-c="${c}" ${I.myPick || I.mode !== 'pick' ? 'disabled' : ''}>
+        <img src="${CHAR_IMG(c)}" alt=""><b class="cc-name">${CHARS[c].name}</b>
+        <span class="hp">${'<i></i>'.repeat(CHARS[c].hp + (I.myRole === 'sheriff' ? 1 : 0))}</span>
+        <span class="cc-desc">${esc(CHARS[c].desc)}</span></button>`).join('');
+    }
+  }
+  const left = Math.max(0, Math.round((I.ends - (Date.now() + skew)) / 1000));
+  $('#iFoot').textContent = I.myPick || isSpec() ? `다른 사람들을 기다리는 중… (${I.picked.length}/${S.players.length})`
+    : I.mode === 'pick' ? `${left}초 안에 고르세요 — 고르지 않으면 왼쪽 인물로 정해져요` : `${left}초 뒤에 저절로 시작해요`;
+  $('#iWho').innerHTML = S.players.map(p => `<span class="iw ${I.picked.includes(p.id) ? 'done' : ''}">${p.id === I.sheriff ? '⭐ ' : ''}${esc(p.name)}${I.picked.includes(p.id) ? ' ✓' : ''}</span>`).join('');
+}
+$('#iChars').addEventListener('click', e => {
+  const b = e.target.closest('.char-card');
+  if (!b || b.disabled) return;
+  send({ t: 'pick', c: b.dataset.c }); sfx.card();
+});
+$('#bReady').onclick = () => { const o = S && S.intro && S.intro.offers; if (o) { send({ t: 'pick', c: o[0] }); sfx.card(); } };
+setInterval(() => { if (screen === 'intro' && S && S.intro) renderIntro(); }, 1000);
+
+/* ─────────────────────────── 판: 줄 세워 그리기 ─────────────────────────── */
+const queue = [];
+let drawn = null, pumping = false, overShown = false;
+async function pump() {
+  if (pumping) return;
+  pumping = true;
+  try {
+    while (queue.length) {
+      const m = queue.shift();
+      const fast = queue.length > 2;               // 밀렸으면 연출을 건너뛰고 따라잡는다
+      if (screen !== 'game' && screen !== 'over') show('game');
+      if (m.reset) $('#logIn').textContent = '';
+      const had = !!drawn;
+      drawn = m;
+      addLogs(m.logs);
+      renderGame();
+      // 새 상태를 먼저 그리고 그 위에서 연출을 보여 준다 — 다 끝나야 다음 상태로 (서버도 그만큼 기다린다)
+      if (!fast && had && m.fx && m.fx.length) await playFx(m.fx);
+      if (m.phase === 'over' && !overShown) { overShown = true; setTimeout(showOver, fast ? 300 : 1800); }
+      if (m.phase !== 'over') overShown = false;
+    }
+  } finally { pumping = false; }
+}
+
+/* 고르는 중인 것 — 요청(seq)이 바뀌면 비운다 */
+let sel = [], mode = null, selSeq = 0, sentSeq = 0;
+function resetSel() { sel = []; mode = null; }
+
+const G = () => drawn && drawn.g;
+const myReq = () => { const g = G(); return g && g.req && g.req.to === me && !drawn.auto && g.req.seq !== sentSeq ? g.req : null; };
+const myP = () => (G() && me != null ? G().players.find(p => p.id === me) : null);
+
+let gateShown = false;
+function renderGame() {
+  const g = G(); if (!g) return;
+  if (!g.req || g.req.seq !== selSeq) { resetSel(); selSeq = g.req ? g.req.seq : 0; }
+  document.body.classList.toggle('my-turn', g.turn === me && !g.over);
+  renderOpps(); renderCenter(); renderMe(); renderHand(); renderAct();
+  const gateLeft = (drawn.gate || 0) - (Date.now() + skew);
+  if (gateLeft > 300 && !gateShown) showGate(gateLeft);
+}
+
+/* 다른 사람 자리 — 나를 아래에 두고 시계 방향(내 왼쪽이 다음 사람) */
+function oppOrder() {
+  const g = G(), n = g.players.length;
+  const mi = Math.max(0, g.players.findIndex(p => p.id === me));
+  const out = [];
+  for (let k = 1; k < n; k++) out.push(g.players[(mi + k) % n]);
+  if (me == null) out.unshift(g.players[mi]);
+  return out;
+}
+function hpHTML(p) {
+  let h = '';
+  for (let i = 0; i < p.max; i++) h += `<i class="${i < p.hp ? '' : 'lost'}"></i>`;
+  return `<span class="hp" title="생명 ${Math.max(0, p.hp)}/${p.max}">${h}</span>`;
+}
+function roleBadge(p) {
+  if (!p.role) return '<span class="rb unk" title="정체 모름">?</span>';
+  return `<span class="rb ${p.role}" title="${ROLES[p.role].name}">${ROLE_EMO[p.role]}</span>`;
+}
+const RING_R = 37, RING_C = 2 * Math.PI * RING_R;
+const ringSVG = `<svg class="ring" viewBox="0 0 80 80"><circle class="fg" cx="40" cy="40" r="${RING_R}" stroke-dasharray="${RING_C}" stroke-dashoffset="${RING_C}"/></svg>`;
+function seatHTML(p) {
+  const g = G(), req = g.req;
+  const cls = ['opp', p.id === g.turn && !g.over ? 'turn' : '', req && req.to === p.id && !g.over ? 'thinking' : '', req && req.to === p.id && req.to !== g.turn && !g.over ? 'asked' : '', !p.alive ? 'dead' : '',
+    targets().has(p.id) ? 'target' : ''].join(' ');
+  const mp = myP();
+  const inRange = mp && mp.alive && p.alive && p.dist != null && p.dist <= mp.range;
+  const pl = playerOf(p.id);
+  return `<div class="${cls}" data-pid="${p.id}">
+    <div class="por" data-char="${p.char}"><img src="${CHAR_IMG(p.char)}" alt="">${ringSVG}${roleBadge(p)}</div>
+    <div class="o-info">
+      <b class="o-name">${esc(p.name)}${p.bot ? ' <i class="otag">봇</i>' : ''}${pl && !pl.bot && !pl.connected ? ' <i class="otag off">끊김</i>' : ''}</b>
+      <span class="o-char" data-char="${p.char}">${CHARS[p.char].name}${!p.alive && p.role ? ' · ' + ROLES[p.role].name : ''}</span>
+      ${hpHTML(p)}
+      <span class="o-meta"><span class="hc" title="손에 든 카드">🂠 ${p.hand}</span>${p.dist != null && p.id !== me ? `<span class="ds ${inRange ? 'in' : ''}" title="내가 보는 거리${inRange ? ' — 사거리 안' : ''}">↔ ${p.dist}</span>` : ''}<span class="rg" title="사거리">🎯 ${p.range}</span></span>
+    </div>
+    <div class="o-tbl">${p.table.map(c => cardHTML(c, 'mini')).join('')}</div>
+    <div class="think">생각 중…</div>
+  </div>`;
+}
+function renderOpps() {
+  $('#opps').innerHTML = oppOrder().map(seatHTML).join('');
+  layout();
+}
+/** 자리를 탁자 둘레 위쪽에 고르게 — 내 왼쪽부터 시계 방향 */
+function layout() {
+  if (!G()) return;
   const t = $('#table').getBoundingClientRect();
-  const v = S.g.v, n = v.players.length;
-  const meIdx = Math.max(0, v.players.findIndex(p => p.id === S.me));
-  const cx = t.width / 2, cy = t.height * 0.48;
-  const rx = t.width * 0.40, ry = t.height * 0.39;
-  document.querySelectorAll('#seats .seat').forEach((el, i) => {
-    const off = (i - meIdx + n) % n;
-    const a = (90 + off * 360 / n) * Math.PI / 180;
+  const els = $$('#opps .opp'), k = els.length;
+  // 폰에서는 둥글게 앉히지 않고 위쪽에 3칸씩 줄 세운다(CSS) — 차례 순서는 그대로 왼쪽 위부터
+  if (innerWidth < 760) { els.forEach(el => { el.style.left = ''; el.style.top = ''; }); return; }
+  const narrow = t.width < 900;
+  els.forEach((el, i) => {
+    const a = (narrow ? 168 : 158) + (i + .5) * ((narrow ? 204 : 224) / k);
+    const rad = a * Math.PI / 180;
     const w = el.offsetWidth, h = el.offsetHeight;
-    let x = cx + rx * Math.cos(a), y = cy + ry * Math.sin(a);
+    let x = t.width / 2 + t.width * (narrow ? .36 : .40) * Math.cos(rad);
+    let y = t.height * .62 + t.height * .54 * Math.sin(rad);
     x = Math.min(t.width - w / 2 - 6, Math.max(w / 2 + 6, x));
-    y = Math.min(t.height - h / 2 - 4, Math.max(h / 2 + 40, y));
+    y = Math.min(t.height - h / 2 - 4, Math.max(h / 2 + 4, y));
     el.style.left = x + 'px'; el.style.top = y + 'px';
   });
 }
-addEventListener('resize', () => requestAnimationFrame(layoutSeats));
+addEventListener('resize', () => requestAnimationFrame(layout));
 
 function renderCenter() {
-  const v = S.g.v;
-  $('#deckN').textContent = `더미 ${v.deck}`;
-  $('#discardPile').innerHTML = v.pile ? cardHtml(v.pile) : '';
-  $('#store').innerHTML = v.store.map(c => cardHtml(c)).join('');
-  const r = v.req;
-  if (r && r.kind === 'store' && r.to === S.me) $('#store').querySelectorAll('.card').forEach(el => { el.style.cursor = 'pointer'; el.onclick = () => act({ a: 'pick', c: +el.dataset.cid }); });
+  const g = G();
+  $('#deckN').textContent = g.deck;
+  $('#pile').innerHTML = g.pile ? cardHTML(g.pile) : '<span class="pile-empty">버린 카드</span>';
+  const st = $('#store'), r = myReq();
+  st.hidden = !g.store.length;
+  st.innerHTML = g.store.length ? `<p class="store-t">잡화점${r && r.kind === 'store' ? ' — 1장을 고르세요' : ''}</p><div class="store-row">${g.store.map(c => cardHTML(c, r && r.kind === 'store' ? 'can' : '')).join('')}</div>` : '';
 }
 
-/* 카드 그림 */
-function cardHtml(c, extra = '') {
+/* 카드 한 장 */
+function cardHTML(c, extra = '') {
   const def = KINDS[c.k];
   const red = c.s === 'H' || c.s === 'D';
-  return `<div class="card ${def.blue ? 'blue' : ''} ${extra}" data-cid="${c.id}" data-k="${c.k}">
-    <span class="tg ${red ? 'r' : ''}">${RANKS[c.r]}${SUITS[c.s]}</span>
-    <div class="art" style="background-image:url(${CARD_IMG(c.k)})"></div>
-    <div class="nmc">${def.name}</div>
-    <div class="ds">${shortDesc(c.k)}</div></div>`;
+  return `<span class="card ${def.blue ? 'blue' : 'brown'} ${extra}" data-cid="${c.id}" data-k="${c.k}">
+    <img class="c-art" src="${CARD_IMG(c.k)}" alt="" draggable="false">
+    <span class="c-tag ${red ? 'r' : ''}">${RANKS[c.r]}<small>${SUITS[c.s]}</small></span>
+    <span class="c-name">${def.name}</span>
+    <span class="c-desc">${SHORT[c.k] || ''}</span></span>`;
 }
 const SHORT = {
-  bang: '사거리 안의 1명을 쏜다', missed: '뱅! 하나를 막는다', beer: '생명 +1', saloon: '모두 생명 +1', stagecoach: '2장 뽑기', wellsfargo: '3장 뽑기',
-  generalstore: '모두 1장씩 고르기', panic: '거리 1 — 1장 빼앗기', catbalou: '아무나 — 1장 버리게', gatling: '모두에게 뱅!', indians: '모두 뱅!을 버리거나 −1', duel: '뱅!을 번갈아 버리기',
-  barrel: '하트면 빗나감!', scope: '남이 1 가까이', mustang: '나는 1 멀리', jail: '하트 아니면 턴 거름', dynamite: '♠2~9면 −3',
+  bang: '사거리 안 1명을 쏜다', missed: '뱅! 하나를 막는다', beer: '생명 +1', saloon: '모두 생명 +1', stagecoach: '2장 뽑기', wellsfargo: '3장 뽑기',
+  generalstore: '모두 1장씩 고르기', panic: '거리 1 · 1장 빼앗기', catbalou: '아무나 · 1장 버리게', gatling: '모두에게 뱅!', indians: '모두 뱅! 버리거나 −1', duel: '뱅!을 번갈아 버린다',
+  barrel: '하트면 빗나감!', scope: '남이 1 가까워짐', mustang: '내가 1 멀어짐', jail: '하트가 아니면 턴을 거름', dynamite: '♠2~9면 −3',
   volcanic: '사거리 1 · 뱅! 무제한', schofield: '사거리 2', remington: '사거리 3', carabine: '사거리 4', winchester: '사거리 5',
 };
-const shortDesc = k => SHORT[k] || '';
+
+/* 내 자리 — 인물 카드 · 역할 · 생명 · 앞에 놓은 카드 */
+function renderMe() {
+  const p = myP(), box = $('#me');
+  if (!p) { box.className = 'me spec'; box.innerHTML = '<p class="me-spec">관전 중 — 손 카드는 보이지 않아요</p>'; return; }
+  const g = G();
+  box.className = 'me' + (p.id === g.turn && !g.over ? ' turn' : '') + (!p.alive ? ' dead' : '') + (g.req && g.req.to === me && !g.over ? ' asked' : '');
+  const bangUsed = g.turn === me && g.bangs && p.char !== 'willy' && !p.table.some(c => c.k === 'volcanic');
+  box.innerHTML = `
+    <div class="me-card por" data-char="${p.char}"><img src="${CHAR_IMG(p.char)}" alt="">${ringSVG}<span class="rb ${p.role}">${ROLE_EMO[p.role]}</span></div>
+    <div class="me-info">
+      <b class="me-name">${esc(p.name)} <span class="me-role ${p.role}">${ROLES[p.role].name}</span></b>
+      <span class="me-char" data-char="${p.char}"><b>${CHARS[p.char].name}</b> — ${esc(CHARS[p.char].desc)}</span>
+      ${hpHTML(p)}
+      <span class="o-meta"><span class="rg">🎯 사거리 ${p.range}</span>${bangUsed ? '<span class="used">뱅! 사용함</span>' : ''}</span>
+    </div>
+    <div class="me-tbl">${p.table.map(c => cardHTML(c, 'mini')).join('')}</div>`;
+}
 
 /* 손 */
+let prevHand = new Set();
 function renderHand() {
-  const v = S.g.v;
-  const el = $('#hand');
-  if (!v.me) { el.innerHTML = '<div style="color:#fff4e0;opacity:.7;padding:30px">구경하는 중입니다</div>'; return; }
+  const g = G(), el = $('#hand');
+  hideTip();
+  if (!g.me) { el.innerHTML = ''; return; }
   const ok = eligible();
-  const now = new Set(v.me.hand.map(c => c.id));
-  el.innerHTML = v.me.hand.map(c => cardHtml(c, [S.sel.includes(c.id) ? 'sel' : '', ok ? (ok.has(c.id) ? 'can' : 'dim') : '', S.prevHand.size && !S.prevHand.has(c.id) ? 'new' : ''].join(' '))).join('');
-  S.prevHand = now;
-  el.querySelectorAll('.card').forEach(c => {
-    c.onclick = () => clickCard(+c.dataset.cid);
-    c.ondblclick = () => { const id = +c.dataset.cid; const r = S.g.v.req; if (r && r.kind === 'play' && mine() && r.moves[id] && !r.moves[id].tg) act({ a: 'play', c: id }); };
-  });
+  const now = new Set(g.me.hand.map(c => c.id));
+  el.innerHTML = g.me.hand.map(c => cardHTML(c, [sel.includes(c.id) ? 'sel' : '', ok ? (ok.has(c.id) ? 'can' : 'dim') : '', prevHand.size && !prevHand.has(c.id) ? 'new' : ''].join(' '))).join('');
+  prevHand = now;
+  el.style.setProperty('--n', g.me.hand.length);
+}
+$('#hand').addEventListener('click', e => { const c = e.target.closest('.card'); if (c) clickCard(Number(c.dataset.cid)); });
+$('#hand').addEventListener('dblclick', e => {
+  const c = e.target.closest('.card'); if (!c) return;
+  const r = myReq(), id = Number(c.dataset.cid);
+  if (r && r.kind === 'play' && r.moves[id] && !r.moves[id].tg) playNoTarget(id);
+});
+/** 대상 없는 카드 — 효과 없는 맥주만 한 번 묻는다(BGA 와 같다) */
+function playNoTarget(id) {
+  const g = G(), p = myP();
+  if (DECK[id].k === 'beer' && (p.hp >= p.max || g.players.filter(x => x.alive).length <= 2)) {
+    openPop(`<p class="pop-title">맥주</p><p class="pop-sub">${p.hp >= p.max ? '생명이 가득 차 있어서' : '두 명만 남아서'} 마셔도 아무 효과가 없어요. 그래도 마실까요?</p><div class="pop-acts"><button class="wbtn dark" data-x><span>그만두기</span></button><button class="wbtn red" id="beerYes"><span>마시기</span></button></div>`);
+    $('#beerYes').onclick = () => { closePop(); act({ a: 'play', c: id }); };
+    return;
+  }
+  act({ a: 'play', c: id });
 }
 
-/** 지금 누를 수 있는 손 카드(밝힘). null 이면 다 보통으로 */
+/** 지금 누를 수 있는 손 카드 */
 function eligible() {
-  const v = S.g.v, r = v.req;
-  if (!r || r.to !== S.me || !v.me) return null;
-  const hand = v.me.hand;
-  if (r.kind === 'play') {
-    if (S.mode === 'sid') return new Set(hand.map(c => c.id));
-    return new Set(Object.keys(r.moves).map(Number));
-  }
+  const r = myReq(), hand = G().me ? G().me.hand : [];
+  if (!r) return null;
+  if (r.kind === 'play') return mode === 'sid' ? new Set(hand.map(c => c.id)) : new Set(Object.keys(r.moves).map(Number));
   if (r.kind === 'discard') return new Set(hand.map(c => c.id));
   if (r.kind === 'react') return new Set(hand.filter(c => r.ok.includes(c.k)).map(c => c.id));
-  if (r.kind === 'dying') {
-    if (S.mode === 'sid') return new Set(hand.map(c => c.id));
-    return new Set(hand.filter(c => c.k === 'beer').map(c => c.id));
-  }
+  if (r.kind === 'dying') return mode === 'sid' ? new Set(hand.map(c => c.id)) : new Set(hand.filter(c => c.k === 'beer').map(c => c.id));
   return new Set();
 }
-
 /** 지금 누를 수 있는 자리 */
-function targetSet() {
-  const v = S.g.v, r = v.req;
-  if (!r || r.to !== S.me) return new Set();
-  if (r.kind === 'play' && S.sel.length === 1 && !S.mode) {
-    const mv = r.moves[S.sel[0]];
-    if (mv && mv.tg) return new Set(mv.tg);
-  }
-  if (r.kind === 'jesse') return new Set(v.players.filter(p => p.alive && p.id !== S.me && p.hand > 0).map(p => p.id));
+function targets() {
+  const r = myReq(), g = G();
+  if (!r) return new Set();
+  if (r.kind === 'play' && sel.length === 1 && !mode) { const mv = r.moves[sel[0]]; if (mv && mv.tg) return new Set(mv.tg); }
+  if (r.kind === 'jesse') return new Set(g.players.filter(p => p.alive && p.id !== me && p.hand > 0).map(p => p.id));
   return new Set();
 }
 
 function clickCard(id) {
-  const v = S.g.v, r = v.req;
-  Snd.click();
-  if (!r || r.to !== S.me) { showTipFor(id); return; }
+  const r = myReq();
+  if (!r) { tipFor(id); return; }
   const ok = eligible();
-  if (r.kind === 'play' && !S.mode) {
-    if (!ok.has(id)) { toast(whyNotHint(id)); return; }
-    if (S.sel[0] === id) {
-      const mv = r.moves[id];
-      if (!mv.tg) return act({ a: 'play', c: id });
-      S.sel = []; render(); return;
-    }
-    S.sel = [id];
-    const mv = r.moves[id];
-    if (mv.tg && mv.tg.length === 1 && isMobile()) { /* 대상이 하나뿐이어도 직접 누르게 한다 — 실수 방지 */ }
-    render();
-    return;
+  if (r.kind === 'play' && !mode) {
+    if (!ok.has(id)) { toast(whyNot(id)); return; }
+    sfx.card();
+    if (sel[0] === id) { if (!r.moves[id].tg) return playNoTarget(id); sel = []; return renderGame(); }
+    sel = [id];
+    return renderGame();
   }
-  if (!ok || !ok.has(id)) return;
-  const max = r.kind === 'discard' ? r.n : r.kind === 'react' ? r.need : S.mode === 'sid' ? 2 : 1;
-  if (S.sel.includes(id)) S.sel = S.sel.filter(x => x !== id);
-  else { S.sel.push(id); if (S.sel.length > max) S.sel.shift(); }
-  if (r.kind === 'dying' && !S.mode) return act({ a: 'beer', c: id });
-  render();
+  if (!ok || !ok.has(id)) { if (r.kind === 'react') toast(`${r.ok.map(k => KINDS[k].name).join(' 또는 ')}만 낼 수 있어요`); return; }
+  if (r.kind === 'dying' && !mode) return act({ a: 'beer', c: id });
+  const max = r.kind === 'discard' ? r.n : r.kind === 'react' ? r.need : 2;
+  if (sel.includes(id)) sel = sel.filter(x => x !== id);
+  else { sel.push(id); if (sel.length > max) sel.shift(); }
+  sfx.card();
+  renderGame();
 }
 
-function whyNotHint(id) {
-  const c = S.g.v.me.hand.find(x => x.id === id);
-  const p = myP();
+/** 못 내는 카드를 누르면 까닭을 알려 준다 */
+function whyNot(id) {
+  const g = G(), c = g.me.hand.find(x => x.id === id), p = myP();
   if (!c) return '';
-  if (c.k === 'missed') return p.char === 'calamity' ? '사거리 안에 쏠 사람이 없거나 이미 뱅!을 쐈습니다' : '빗나감!은 뱅!을 막을 때 씁니다';
-  if (c.k === 'bang') return S.g.v.bangs >= 1 ? '뱅!은 한 턴에 한 장만 쏠 수 있습니다' : '사거리 안에 쏠 사람이 없습니다';
-  if (c.k === 'beer') return '생명이 가득하거나, 두 명만 남아 맥주가 듣지 않습니다';
-  if (c.k === 'panic') return '거리 1 안에 카드를 가진 사람이 없습니다';
-  if (KINDS[c.k].blue) return '이미 같은 카드를 앞에 놓았습니다';
-  return '지금은 낼 수 없습니다';
+  const k = c.k === 'missed' && p.char === 'calamity' ? 'bang' : c.k;
+  if (c.k === 'missed' && p.char !== 'calamity') return '빗나감!은 누가 나를 쏠 때만 낼 수 있어요.';
+  if (k === 'bang') return g.bangs >= 1 ? '뱅!은 한 턴에 한 장만 쏠 수 있어요.' : `사거리(${p.range}) 안에 쏠 사람이 없어요. 무기를 바꾸거나 조준경을 놓아 보세요.`;
+  if (k === 'beer') return g.players.filter(x => x.alive).length <= 2 ? '두 명만 남으면 맥주는 효과가 없어요.' : '생명이 가득 차 있어요.';
+  if (k === 'panic') return '거리 1 안에 카드를 가진 사람이 없어요.';
+  if (k === 'jail') return '감옥에 넣을 사람이 없어요 (보안관은 못 넣어요).';
+  if (KINDS[k].blue) return `이미 ${KINDS[k].name}${josa(KINDS[k].name, '을', '를')} 앞에 놓았어요. 같은 카드는 한 장만.`;
+  return '지금은 낼 수 없어요.';
 }
 
-function clickSeat(pid) {
-  const v = S.g.v, r = v.req;
-  if (!r || r.to !== S.me) return;
-  if (r.kind === 'jesse') { const p = P(pid); if (p && p.alive && p.hand && pid !== S.me) act({ a: 'from', t: pid }); return; }
-  if (r.kind !== 'play' || S.sel.length !== 1) return;
-  const c = S.sel[0], mv = r.moves[c];
-  if (!mv || !mv.tg || !mv.tg.includes(pid)) return;
-  if (mv.steal) return stealPicker(c, pid);
+$('#opps').addEventListener('click', e => {
+  const el = e.target.closest('.opp'); if (!el) return;
+  const pid = Number(el.dataset.pid), r = myReq();
+  if (!r) return;
+  if (r.kind === 'jesse') { if (targets().has(pid)) act({ a: 'from', t: pid }); return; }
+  if (r.kind !== 'play' || sel.length !== 1 || mode) return;
+  const c = sel[0], mv = r.moves[c];
+  if (!mv || !mv.tg) return;
+  if (!mv.tg.includes(pid)) { toast(KINDS[DECK[c].k === 'missed' ? 'bang' : DECK[c].k].tg === 'reach' ? '사거리 밖이에요.' : '그 사람에게는 낼 수 없어요.'); return; }
+  if (mv.steal) return stealPick(c, pid);
   act({ a: 'play', c, t: pid });
-}
+});
 
-/** 강탈 · 캣 벌로우: 손(무작위)이냐 앞에 놓인 카드냐 */
-function stealPicker(c, pid) {
-  const p = P(pid);
-  const kind = S.g.v.me.hand.find(x => x.id === c).k;
+/** 강탈 · 캣 벌로우 — 손에서 무작위로, 또는 앞에 놓인 카드 */
+function stealPick(c, pid) {
+  const p = G().players.find(x => x.id === pid), k = DECK[c].k;
   const opts = [];
-  if (p.hand) opts.push(`<div class="handback" data-tc="hand"><div class="card back" style="--cw:78px;--ch:112px"></div>손에서 무작위 1장<br>(${p.hand}장)</div>`);
-  for (const t of p.table) opts.push(`<div class="handback" data-tc="${t.id}">${cardHtml(t).replace('class="card', 'style="--cw:78px;--ch:112px" class="card')}${KINDS[t.k].name}</div>`);
-  openModal(`<button class="x" data-x>✕</button><h3>${KINDS[kind].name}</h3><p style="text-align:center">${esc(p.name)} 님의 어떤 카드를 ${kind === 'panic' ? '빼앗을까요' : '버리게 할까요'}?</p><div class="steal-pick">${opts.join('')}</div>`);
-  document.querySelectorAll('.steal-pick [data-tc]').forEach(el => el.onclick = () => {
-    closeModal();
-    act({ a: 'play', c, t: pid, tc: el.dataset.tc === 'hand' ? 'hand' : +el.dataset.tc });
-  });
+  if (p.hand) opts.push(`<button class="sp-opt" data-tc="hand"><span class="card back"><img class="c-art" src="${CARD_IMG('back')}" alt=""></span><small>손에서 무작위 1장<br>(${p.hand}장 중)</small></button>`);
+  for (const t of p.table) opts.push(`<button class="sp-opt" data-tc="${t.id}">${cardHTML(t)}<small>${KINDS[t.k].name}</small></button>`);
+  openPop(`<p class="pop-title">${KINDS[k].name}</p><p class="pop-sub">${esc(p.name)} 님의 어떤 카드를 ${k === 'panic' ? '빼앗을까요' : '버리게 할까요'}?</p><div class="sp-row">${opts.join('')}</div><div class="pop-acts"><button class="wbtn dark" data-x><span>그만두기</span></button></div>`);
+  $$('#popBox [data-tc]').forEach(b => b.onclick = () => { closePop(); act({ a: 'play', c, t: pid, tc: b.dataset.tc === 'hand' ? 'hand' : Number(b.dataset.tc) }); });
 }
 
 function act(r) {
-  const v = S.g.v;
-  if (!v.req) return;
-  Snd.click();
-  S.sentSeq = v.req.seq;
-  send({ t: 'act', seq: v.req.seq, r });
-  S.sel = []; S.mode = null;
+  const q = G() && G().req;
+  if (!q) return;
+  sentSeq = q.seq;
+  send({ t: 'act', seq: q.seq, r });
+  resetSel();
+  sfx.pop();
+  renderGame();
 }
 
-/* 안내 막대 */
+/* 할 일 막대 */
 const WHY = { bang: '뱅!', gatling: '기관총', indians: '인디언!', duel: '결투' };
-function renderPrompt() {
-  const v = S.g.v, r = v.req;
-  const el = $('#prompt'), tx = $('#pText'), bt = $('#pBtns');
-  el.classList.toggle('mine', !!mine());
+function renderAct() {
+  const g = G(), r = g.req, rm = myReq();
+  const box = $('#act'), tx = $('#actText'), bt = $('#actBtns');
+  const p = myP();
   let text = '', btns = [];
   const B = (label, fn, cls = '', dis = false) => btns.push({ label, fn, cls, dis });
-  const me = myP();
-  if (v.over) {
-    text = v.over.team === 'sheriff' ? '⭐ 보안관 편 승리!' : v.over.team === 'outlaw' ? '💀 무법자 승리!' : '🎭 배신자 승리!';
-    B('결과 보기', showResult, 'ghost');
+  box.classList.toggle('mine', !!rm);
+  if (g.over) {
+    text = g.over.team === 'sheriff' ? '⭐ 보안관 편이 이겼습니다!' : g.over.team === 'outlaw' ? '💀 무법자들이 이겼습니다!' : '🎭 배신자가 홀로 살아남았습니다!';
+    B('결과 보기', showOver, 'red');
+  } else if (drawn.auto && p && p.alive) {
+    text = '💤 자리 비움 — 봇이 대신 두고 있어요';
+    B('돌아왔어요', () => send({ t: 'back' }), 'red');
   } else if (!r) {
-    text = '…';
-  } else if (r.to !== S.me) {
-    const who = P(r.to);
-    const doing = { play: '카드를 내는 중', discard: '카드를 버리는 중', react: r.why === 'duel' ? '결투 중' : '막을지 고민하는 중', dying: '맥주를 찾는 중', store: '잡화점에서 고르는 중', jesse: '카드를 가져올 곳을 고르는 중', pedro: '카드를 가져올 곳을 고르는 중', kit: '카드를 고르는 중' }[r.kind];
-    text = `${who ? esc(who.name) : ''} 님이 ${doing}…`;
-    if (!S.me) text += '<small>구경하는 중입니다</small>';
-    else if (me && !me.alive) text += '<small>쓰러졌습니다 — 끝까지 구경할 수 있어요</small>';
+    text = '';
+  } else if (!rm) {
+    if (r.to === me) text = '…';
+    else {
+      const doing = { play: '카드를 내는 중', discard: '카드를 버리는 중', react: '막을지 고민하는 중', dying: '맥주를 찾는 중', store: '잡화점에서 고르는 중', jesse: '첫 장을 어디서 가져올지 고르는 중', pedro: '첫 장을 어디서 가져올지 고르는 중', kit: '카드를 고르는 중', lucky: '뽑기! 두 장 중 고르는 중' }[r.kind];
+      text = `${esc(nameOf(r.to))} 님이 ${doing}…`;
+      if (r.kind === 'react' && r.from != null) text = `${esc(nameOf(r.from))} 님의 ${WHY[r.why]} — ${esc(nameOf(r.to))} 님이 ${r.why === 'duel' || r.why === 'indians' ? '뱅!을 낼지' : '막을지'} 고민하는 중…`;
+    }
+    if (isSpec()) text += '<small>구경하는 중이에요</small>';
+    else if (p && !p.alive) text += '<small>쓰러졌어요 — 끝까지 지켜볼 수 있어요</small>';
   } else {
-    switch (r.kind) {
+    switch (rm.kind) {
       case 'play': {
-        if (S.mode === 'sid') {
-          text = `시드 케첨 — 버릴 카드 2장을 고르세요 (${S.sel.length}/2)`;
-          B('생명 +1', () => act({ a: 'sid', cs: S.sel }), 'green', S.sel.length !== 2);
-          B('취소', () => { S.mode = null; S.sel = []; render(); }, 'ghost');
+        if (mode === 'sid') {
+          text = `<b>시드 케첨</b> — 버릴 카드 2장을 고르세요 (${sel.length}/2)`;
+          B('생명 +1', () => act({ a: 'sid', cs: sel }), 'red', sel.length !== 2);
+          B('취소', () => { resetSel(); renderGame(); }, 'dark');
           break;
         }
-        const c = S.sel.length === 1 && v.me.hand.find(x => x.id === S.sel[0]);
+        const c = sel.length === 1 && g.me.hand.find(x => x.id === sel[0]);
         if (c) {
-          const mv = r.moves[c.id];
-          text = `${KINDS[c.k].name} <small>${esc(KINDS[c.k].desc)}</small>`;
-          if (mv && mv.tg) text = `${KINDS[c.k].name} — 대상을 누르세요 <small>${esc(KINDS[c.k].desc)}</small>`;
-          else B('사용', () => act({ a: 'play', c: c.id }), '');
-          B('취소', () => { S.sel = []; render(); }, 'ghost');
+          const mv = rm.moves[c.id];
+          text = mv && mv.tg ? `<b>${KINDS[c.k].name}</b> — 빛나는 사람을 눌러 대상을 고르세요<small>${esc(KINDS[c.k].desc)}</small>` : `<b>${KINDS[c.k].name}</b> — 한 번 더 누르거나 "사용하기"<small>${esc(KINDS[c.k].desc)}</small>`;
+          if (!(mv && mv.tg)) B('사용하기', () => playNoTarget(c.id), 'red');
+          B('취소', () => { resetSel(); renderGame(); }, 'dark');
         } else {
-          text = `당신의 차례 — 카드를 내세요<small>밝은 카드를 누르면 고르고, 한 번 더 누르면 씁니다. ${me.char === 'willy' || me.table.some(t => t.k === 'volcanic') ? '뱅! 무제한' : v.bangs ? '이번 턴 뱅! 사용함' : '뱅!은 한 턴에 한 장'}</small>`;
+          text = `<b>당신의 차례</b> — 카드를 내거나 턴을 끝내세요<small>빛나는 카드를 누르면 고르고, 한 번 더 누르면 씁니다 · ${p.char === 'willy' || p.table.some(t => t.k === 'volcanic') ? '뱅! 제한 없음' : g.bangs ? '이번 턴에 뱅!을 이미 쐈어요' : '뱅!은 한 턴에 한 장'}</small>`;
+          if (p.char === 'sid' && p.hp < p.max && g.me.hand.length >= 2) B('시드: 2장 버리고 +1', () => { mode = 'sid'; sel = []; renderGame(); }, '');
         }
-        if (me.char === 'sid' && me.hp < me.max && v.me.hand.length >= 2 && !c) B('시드: 2장 버리고 +1', () => { S.mode = 'sid'; S.sel = []; render(); }, 'green');
-        B('턴 끝내기', () => act({ a: 'end' }), 'blue');
+        B('턴 끝내기', () => act({ a: 'end' }), c ? '' : 'red');
         break;
       }
       case 'discard':
-        text = `손 카드가 생명보다 많습니다 — ${r.n}장을 버리세요 (${S.sel.length}/${r.n})`;
-        B('버리기', () => act({ a: 'discard', cs: S.sel }), '', S.sel.length !== r.n);
+        text = `<b>손 카드가 생명보다 많아요</b> — ${rm.n}장을 골라 버리세요 (${sel.length}/${rm.n})`;
+        B('버리기', () => act({ a: 'discard', cs: sel }), 'red', sel.length !== rm.n);
+        B('취소 — 카드 더 내기', () => act({ a: 'cancel' }), 'dark');
         break;
       case 'react': {
-        const from = P(r.from);
-        const okName = r.ok.map(k => KINDS[k].name).join(' 또는 ');
-        if (r.why === 'bang' || r.why === 'gatling') text = `${esc(from.name)} 님의 ${WHY[r.why]}${r.why === 'gatling' ? '!' : ''} ${r.need > 1 ? `빗나감! ${r.need}장이 있어야 막습니다` : '막으시겠습니까?'}`;
-        else if (r.why === 'indians') text = `${esc(from.name)} 님의 인디언! 뱅!을 1장 버리거나 생명 1을 잃습니다`;
-        else text = `${esc(from.name)} 님과 결투! 뱅!을 1장 버리거나 생명 1을 잃습니다`;
-        text += `<small>${okName} ${r.need}장 — 카드를 골라도 되고, 그냥 막기를 눌러도 됩니다</small>`;
-        const elig = v.me.hand.filter(c => r.ok.includes(c.k));
-        B(r.why === 'bang' || r.why === 'gatling' ? `막기 (${r.need}장)` : '뱅! 버리기', () => {
-          let cs = S.sel.filter(id => elig.some(c => c.id === id));
-          // 빗나감!을 먼저(캘러미티라도 뱅!은 아껴 둔다), 모자라면 나머지
-          for (const c of [...elig].sort((a, b) => (a.k === r.ok[0] ? -1 : 1) - (b.k === r.ok[0] ? -1 : 1))) { if (cs.length >= r.need) break; if (!cs.includes(c.id)) cs.push(c.id); }
-          act({ a: 'cards', cs: cs.slice(0, r.need) });
-        }, 'blue', elig.length < r.need);
-        B('맞기 (생명 −1)', () => act({ a: 'take' }), '');
+        const from = esc(nameOf(rm.from));
+        const elig = g.me.hand.filter(c => rm.ok.includes(c.k));
+        if (rm.why === 'bang' || rm.why === 'gatling') text = `<b>${from} 님의 ${WHY[rm.why]}${rm.why === 'gatling' ? '!' : ''}</b> ${rm.need > 1 ? `빗나감! ${rm.need}장이 있어야 막을 수 있어요` : '빗나감!으로 막을까요?'}`;
+        else if (rm.why === 'indians') text = `<b>${from} 님의 인디언!</b> 뱅!을 1장 버리거나 생명 1을 잃어요`;
+        else text = `<b>${from} 님과 결투!</b> 뱅!을 1장 버리면 상대 차례, 못 버리면 생명 1을 잃어요`;
+        if (rm.barrel) B(p.char === 'jourdonnais' && !p.table.some(t => t.k === 'barrel') ? '🛢 능력: 술통 뽑기' : '🛢 술통 쓰기', () => act({ a: 'barrel' }), 'red');
+        if (elig.length) B(rm.why === 'bang' || rm.why === 'gatling' ? (rm.need > 1 ? `빗나감! 내기 (${Math.min(elig.length, rm.need)}장)` : `${KINDS[rm.ok[0]].name} 내기`) : `${KINDS[rm.ok.find(k => elig.some(c => c.k === k)) || rm.ok[0]].name} 버리기`, () => {
+          let cs = sel.filter(id => elig.some(c => c.id === id));
+          for (const c of [...elig].sort((a, b) => (a.k === rm.ok[0] ? -1 : 1) - (b.k === rm.ok[0] ? -1 : 1))) { if (cs.length >= rm.need) break; if (!cs.includes(c.id)) cs.push(c.id); }
+          act({ a: 'cards', cs: cs.slice(0, rm.need) });
+        }, rm.barrel ? '' : 'red');
+        B(rm.why === 'duel' ? '포기 (생명 −1)' : '맞기 (생명 −1)', () => act({ a: 'take' }), 'dark');
         break;
       }
       case 'dying': {
-        text = `마지막 생명을 잃었습니다! 생명 ${r.need}만큼 버텨야 삽니다`;
-        if (S.mode === 'sid') {
-          text = `시드 케첨 — 버릴 카드 2장 (${S.sel.length}/2)`;
-          B('생명 +1', () => act({ a: 'sid', cs: S.sel }), 'green', S.sel.length !== 2);
-          B('취소', () => { S.mode = null; S.sel = []; render(); }, 'ghost');
+        text = `<b>마지막 생명을 잃었어요!</b> 생명 ${rm.need}만큼 버텨야 살아요`;
+        if (mode === 'sid') {
+          text = `<b>시드 케첨</b> — 버릴 카드 2장 (${sel.length}/2)`;
+          B('생명 +1', () => act({ a: 'sid', cs: sel }), 'red', sel.length !== 2);
+          B('취소', () => { resetSel(); renderGame(); }, 'dark');
           break;
         }
-        const beer = v.me.hand.find(c => c.k === 'beer');
-        if (beer && v.players.filter(p => p.alive).length > 2) B('🍺 맥주 마시기', () => act({ a: 'beer', c: beer.id }), 'green');
-        if (me.char === 'sid' && v.me.hand.length >= 2) B('시드: 2장 버리고 +1', () => { S.mode = 'sid'; S.sel = []; render(); }, 'green');
-        B('쓰러지기', () => act({ a: 'die' }), 'ghost');
+        const beer = g.me.hand.find(c => c.k === 'beer');
+        if (beer && g.players.filter(x => x.alive).length > 2) B('🍺 맥주 마시기', () => act({ a: 'beer', c: beer.id }), 'red');
+        if (p.char === 'sid' && g.me.hand.length >= 2) B('시드: 2장 버리고 +1', () => { mode = 'sid'; sel = []; renderGame(); }, '');
+        B('쓰러지기', () => act({ a: 'die' }), 'dark');
         break;
       }
-      case 'store':
-        text = '잡화점 — 가운데 펼친 카드 중 1장을 고르세요';
-        setTimeout(() => storeModal(r), 0);
-        break;
+      case 'store': text = '<b>잡화점</b> — 가운데 펼친 카드 중 1장을 고르세요'; break;
       case 'jesse':
-        text = '제시 존스 — 첫 장을 더미에서, 또는 다른 사람의 손에서(자리를 누르세요) 가져옵니다';
-        B('더미에서 뽑기', () => act({ a: 'deck' }), 'blue');
+        text = '<b>제시 존스</b> — 첫 장을 더미에서, 또는 빛나는 사람의 손에서 가져와요';
+        B('더미에서 뽑기', () => act({ a: 'deck' }), 'red');
         break;
       case 'pedro':
-        text = `페드로 라미레즈 — 첫 장을 어디서 가져올까요? <small>버린 카드 맨 위: ${KINDS[r.top.k].name} ${RANKS[r.top.r]}${SUITS[r.top.s]}</small>`;
-        B('더미에서 뽑기', () => act({ a: 'deck' }), 'blue');
-        B(`버린 ${KINDS[r.top.k].name} 가져오기`, () => act({ a: 'discard' }), '');
+        text = `<b>페드로 라미레즈</b> — 첫 장을 더미에서, 또는 버린 카드 맨 위(${KINDS[rm.top.k].name})에서 가져와요`;
+        B('더미에서 뽑기', () => act({ a: 'deck' }), '');
+        B(`버린 ${KINDS[rm.top.k].name} 가져오기`, () => act({ a: 'discard' }), 'red');
         break;
       case 'kit':
-        text = '킷 칼슨 — 3장 중 더미 위로 돌려놓을 1장을 고르세요';
-        setTimeout(() => kitModal(r), 0);
+        text = '<b>킷 칼슨</b> — 3장 중 더미 위로 <b>돌려놓을</b> 1장을 고르세요';
+        setTimeout(() => kitPop(rm), 0);
+        break;
+      case 'lucky':
+        text = `<b>럭키 듀크</b> — ${rm.what} 뽑기! 두 장 중 쓸 카드를 고르세요`;
+        setTimeout(() => luckyPop(rm), 0);
         break;
     }
-  }
-  if (S.auto && S.me && me && me.alive && !v.over) {
-    text = '💤 자리 비움 — 봇이 대신 두는 중입니다';
-    btns = [{ label: '돌아왔어요', fn: () => send({ t: 'back' }), cls: 'green' }];
   }
   tx.innerHTML = text;
   bt.innerHTML = '';
   for (const b of btns) {
     const e = document.createElement('button');
-    e.className = 'btn sm ' + b.cls; e.textContent = b.label; e.disabled = b.dis; e.onclick = b.fn;
+    e.className = 'wbtn sm ' + b.cls; e.innerHTML = `<span>${b.label}</span>`; e.disabled = b.dis; e.onclick = b.fn;
     bt.appendChild(e);
   }
-  if (mine() && r && r.kind !== 'play') { /* 막기 등 내 차례면 기록 대신 판이 보이게 */ }
+  box.classList.toggle('empty', !text);
+}
+$('#store').addEventListener('click', e => {
+  const c = e.target.closest('.card'), r = myReq();
+  if (c && r && r.kind === 'store') act({ a: 'pick', c: Number(c.dataset.cid) });
+});
+function luckyPop(r) {
+  const q = myReq();
+  if (!q || q.kind !== 'lucky' || !$('#pop').hidden) return;
+  const hint = { '술통': '♥가 나오면 빗나감!', '감옥': '♥가 나오면 풀려나요', '다이너마이트': '♠2~9가 나오면 터져요' }[r.what] || '';
+  openPop(`<p class="pop-title">럭키 듀크 — ${esc(r.what)} 뽑기!</p><p class="pop-sub">두 장 중 하나를 고르세요 · ${hint}</p><div class="sp-row">${r.cards.map(c => `<button class="sp-opt" data-c="${c.id}">${cardHTML(c)}</button>`).join('')}</div>`, true);
+  $$('#popBox [data-c]').forEach(b => b.onclick = () => { closePop(); act({ a: 'pick', c: Number(b.dataset.c) }); });
+}
+function kitPop(r) {
+  const q = myReq();
+  if (!q || q.kind !== 'kit' || !$('#pop').hidden) return;
+  openPop(`<p class="pop-title">킷 칼슨</p><p class="pop-sub">더미 위로 돌려놓을 1장을 고르세요 — 나머지 2장을 가집니다</p><div class="sp-row">${r.cards.map(c => `<button class="sp-opt" data-c="${c.id}">${cardHTML(c)}</button>`).join('')}</div>`, true);
+  $$('#popBox [data-c]').forEach(b => b.onclick = () => { closePop(); act({ a: 'back', c: Number(b.dataset.c) }); });
 }
 
-function storeModal(r) {
-  if (!mine() || S.g.v.req.kind !== 'store' || !$('#modal').hidden || S.sentSeq === S.g.v.req.seq) return;
-  openModal(`<h3>잡화점</h3><p style="text-align:center">가져갈 카드 1장을 고르세요</p><div class="row">${r.cards.map(c => cardHtml(c)).join('')}</div>`, true);
-  document.querySelectorAll('#modalBox .row .card').forEach(el => el.onclick = () => { closeModal(); act({ a: 'pick', c: +el.dataset.cid }); });
+/* 남은 시간 — 할 일 막대와 그 사람 초상 둘레 */
+function tick() {
+  requestAnimationFrame(tick);
+  const g = G();
+  if (screen !== 'game' || !g || !g.req || !drawn.deadline) { $('#actBar').style.transform = 'scaleX(0)'; return; }
+  const left = drawn.deadline - (Date.now() + skew), total = (drawn.secs || 1) * 1000;
+  const f = Math.max(0, Math.min(1, left / total));
+  $('#actBar').style.transform = `scaleX(${f})`;
+  $('#actBar').classList.toggle('low', f < .25);
+  $$('.opp, .me').forEach(el => {
+    const fg = el.querySelector('.ring .fg'); if (!fg) return;
+    const id = el.classList.contains('me') ? me : Number(el.dataset.pid);
+    fg.style.strokeDashoffset = id === g.req.to ? RING_C * (1 - f) : RING_C;
+  });
 }
-function kitModal(r) {
-  if (!mine() || S.g.v.req.kind !== 'kit' || !$('#modal').hidden || S.sentSeq === S.g.v.req.seq) return;
-  openModal(`<h3>킷 칼슨</h3><p style="text-align:center">더미 위로 <b>돌려놓을</b> 1장을 고르세요 — 나머지 2장을 가집니다</p><div class="row">${r.cards.map(c => cardHtml(c)).join('')}</div>`, true);
-  document.querySelectorAll('#modalBox .row .card').forEach(el => el.onclick = () => { closeModal(); act({ a: 'back', c: +el.dataset.cid }); });
-}
+requestAnimationFrame(tick);
 
-/* 남은 시간 */
-function tickTimer() {
-  requestAnimationFrame(tickTimer);
-  const bar = $('#timerBar');
-  const t = S.timer;
-  if (!t || S.view !== 'game') { bar.style.transform = 'scaleX(0)'; document.querySelectorAll('.seat .ring i').forEach(i => i.style.transform = 'scaleX(0)'); return; }
-  const f = Math.max(0, Math.min(1, (t.end - Date.now()) / (t.secs * 1000)));
-  bar.style.transform = `scaleX(${f})`;
-  bar.style.background = f < .25 ? 'var(--red-hi)' : 'var(--gold)';
-  document.querySelectorAll('.seat').forEach(el => { const i = el.querySelector('.ring i'); if (i) i.style.transform = `scaleX(${el.dataset.pid === t.to ? f : 0})`; });
+/* ─────────────────────────── 연출 ─────────────────────────── */
+function relPt(el) { const t = $('#table').getBoundingClientRect(), r = el.getBoundingClientRect(); return { x: r.left - t.left + r.width / 2, y: r.top - t.top + r.height / 2 }; }
+function anchor(id) {
+  const el = id === me ? $('#me .me-card') : $(`#opps .opp[data-pid="${id}"] .por`);
+  if (!el) { const t = $('#table'); return { x: t.clientWidth / 2, y: t.clientHeight / 2 }; }
+  return relPt(el);
 }
-requestAnimationFrame(tickTimer);
-
-/* ───────────── 연출 ───────────── */
-const seatEl = id => document.querySelector(`#seats .seat[data-pid="${CSS.escape(String(id))}"]`);
-function seatPos(id) {
-  const el = seatEl(id), t = $('#table').getBoundingClientRect();
-  if (!el) return { x: t.width / 2, y: t.height / 2 };
-  const r = el.getBoundingClientRect();
-  return { x: r.left - t.left + r.width / 2, y: r.top - t.top + r.height / 2 };
+const deckPt = () => relPt($('#deck'));
+const pilePt = () => relPt($('#pile'));
+function fxEl(cls, html, at, ms = 1300) {
+  const e = document.createElement('div');
+  e.className = 'fx ' + cls; e.innerHTML = html;
+  e.style.left = at.x + 'px'; e.style.top = at.y + 'px';
+  $('#fx').appendChild(e);
+  setTimeout(() => e.remove(), ms);
+  return e;
 }
-function fxText(id, text, cls = '', delay = 0) {
-  setTimeout(() => {
-    const p = id == null ? { x: $('#table').clientWidth / 2, y: $('#table').clientHeight * .4 } : seatPos(id);
-    const e = document.createElement('div');
-    e.className = 'fx ' + cls; e.textContent = text;
-    e.style.left = p.x + 'px'; e.style.top = (p.y - 20) + 'px';
-    $('#fxLayer').appendChild(e);
-    setTimeout(() => e.remove(), 1300);
-  }, delay);
+function tracer(a, b) {
+  const p = anchor(a), q = anchor(b), dx = q.x - p.x, dy = q.y - p.y;
+  const e = document.createElement('div');
+  e.className = 'tracer';
+  e.style.left = p.x + 'px'; e.style.top = p.y + 'px'; e.style.width = Math.hypot(dx, dy) + 'px';
+  e.style.transform = `rotate(${Math.atan2(dy, dx)}rad)`;
+  $('#fx').appendChild(e);
+  setTimeout(() => e.remove(), 500);
+  fxEl('flash', '', p, 300);
 }
-function tracer(a, b, delay = 0) {
-  setTimeout(() => {
-    const p = seatPos(a), q = seatPos(b);
-    const e = document.createElement('div');
-    e.className = 'tracer';
-    const dx = q.x - p.x, dy = q.y - p.y;
-    e.style.left = p.x + 'px'; e.style.top = p.y + 'px';
-    e.style.width = Math.hypot(dx, dy) + 'px';
-    e.style.transform = `rotate(${Math.atan2(dy, dx)}rad)`;
-    $('#fxLayer').appendChild(e);
-    setTimeout(() => e.remove(), 400);
-  }, delay);
+function shake(id) { const el = id === me ? $('#me') : $(`#opps .opp[data-pid="${id}"]`); if (el) { el.classList.remove('shake'); void el.offsetWidth; el.classList.add('shake'); } }
+/** 카드 한 장이 a 에서 b 로 날아간다 */
+function flyCard(c, from, to) {
+  const p = from === 'deck' ? deckPt() : from === 'pile' ? pilePt() : anchor(from);
+  const q = to === 'pile' ? pilePt() : to === 'deck' ? deckPt() : anchor(to);
+  const e = document.createElement('div');
+  e.className = 'fly';
+  e.innerHTML = c ? cardHTML(c) : `<span class="card back"><img class="c-art" src="${CARD_IMG('back')}" alt=""></span>`;
+  e.style.left = p.x + 'px'; e.style.top = p.y + 'px';
+  $('#fx').appendChild(e);
+  requestAnimationFrame(() => requestAnimationFrame(() => { e.style.transform = `translate(-50%, -50%) translate(${q.x - p.x}px, ${q.y - p.y}px) rotate(${(Math.random() - .5) * 16}deg)`; }));
+  setTimeout(() => e.remove(), 700);
 }
-function shake(id, delay = 0) { setTimeout(() => { const el = seatEl(id); if (el) { el.classList.remove('shake'); void el.offsetWidth; el.classList.add('shake'); } }, delay); }
-function banner(text) { const b = $('#banner'); b.textContent = text; b.classList.remove('show'); void b.offsetWidth; b.classList.add('show'); }
-let flipT = null;
+function banner(text, cls = '') { return fxEl('banner ' + cls, text, { x: $('#table').clientWidth / 2, y: $('#table').clientHeight * .4 }, 1500); }
 function showFlip(e) {
   const f = $('#flip');
-  const byId = id => ({ id, ...cardOf(id) });
-  f.innerHTML = e.cs.map(id => cardHtml(byId(id))).join('') + `<div class="verdict ${e.ok ? 'ok' : 'no'}">${e.what} 뽑기! ${e.ok ? '성공' : '실패'}</div>`;
-  clearTimeout(flipT); flipT = setTimeout(() => { f.innerHTML = ''; }, 1700);
+  f.innerHTML = `<p class="flip-t">${esc(nameOf(e.id))} — ${e.what} 뽑기!</p><div class="flip-row">${e.cs.map(id => cardHTML(DECK[id], e.cs.length > 1 ? (id === e.pick ? 'pick' : 'dim') : '')).join('')}</div><p class="flip-v ${e.ok ? 'ok' : 'no'}">${e.ok ? '성공!' : '실패…'}</p>`;
+  f.hidden = false;
+  setTimeout(() => { f.hidden = true; }, FX_MS.flip - 100);
 }
-/* 카드 id → 무늬·종류. 서버 덱과 같은 순서로 cards.js 에서 만든다 */
-const cardOf = id => DECK[id];
 
-function playFx(evs) {
-  let d = 0;
-  for (const e of evs) {
+async function playFx(list) {
+  for (const e of list) {
+    const ms = FX_MS[e.fx] || 300;
     switch (e.fx) {
-      case 'turn': {
-        const p = P(e.id);
-        if (e.id === S.me) { banner('당신의 차례!'); Snd.turn(); } else if (p) banner(`${p.name} 님의 차례`);
+      case 'turn': if (e.id === me) { banner('당신의 차례!', 'mine'); sfx.turn(); } else banner(`${esc(nameOf(e.id))} 님의 차례`); break;
+      case 'play': {
+        const k = DECK[e.c].k;
+        flyCard(DECK[e.c], e.id, 'pile'); sfx.card();
+        if (!['bang', 'missed'].includes(k)) fxEl('word', KINDS[k].name, anchor(e.id), 1100);
         break;
       }
-      case 'shot': tracer(e.from, e.to, d); setTimeout(() => Snd.shot(), d); fxText(e.to, 'BANG!', '', d); d += 250; break;
-      case 'hurt': fxText(e.id, '−' + e.n, 'dmg', d + 100); shake(e.id, d + 100); setTimeout(() => Snd.hurt(), d + 100); d += 200; break;
-      case 'heal': fxText(e.id, '+1', 'heal', d); setTimeout(() => Snd.heal(), d); break;
-      case 'dodge': fxText(e.id, '빗나감!', 'miss', d + 150); setTimeout(() => Snd.miss(), d + 150); d += 200; break;
-      case 'flip': setTimeout(() => showFlip(e), d); d += 400; break;
-      case 'boom': fxText(e.id, '💥', 'big', d); setTimeout(() => Snd.boom(), d); shake(e.id, d); d += 300; break;
-      case 'die': { const p = P(e.id); fxText(e.id, '☠', 'big', d); setTimeout(() => { Snd.die(); banner(`${p ? p.name : ''} 쓰러짐 — ${ROLES[e.role].name}`); }, d); d += 400; break; }
-      case 'jailed': fxText(e.id, '⛓ 턴 거름', 'miss', d); break;
-      case 'gatling': fxText(null, '기관총!', 'big', d); setTimeout(() => { Snd.shot(.5); setTimeout(() => Snd.shot(.4), 120); setTimeout(() => Snd.shot(.35), 240); }, d); d += 300; break;
-      case 'indians': fxText(null, '인디언!', 'big', d); d += 300; break;
-      case 'play': if (e.c != null && !['bang', 'missed'].includes(cardOf(e.c).k)) fxText(e.id, KINDS[cardOf(e.c).k].name, 'miss', d); break;
-      case 'equip': if (e.c != null) fxText(e.id, KINDS[cardOf(e.c).k].name, 'miss', d); break;
-      case 'steal': if (e.to === S.me) toast(`${(P(e.from) || {}).name || ''} 님에게서 카드를 가져왔습니다`); else if (e.from === S.me) toast(`${(P(e.to) || {}).name || ''} 님이 내 카드를 가져갔습니다`); break;
-      case 'over': setTimeout(() => Snd.win(), d + 300); break;
-      case 'reshuffle': toast('버린 카드를 섞어 새 더미를 만들었습니다'); break;
+      case 'equip': flyCard(DECK[e.c], e.by != null ? e.by : e.id, e.id); fxEl('word', KINDS[DECK[e.c].k].name, anchor(e.id), 1100); sfx.card(); break;
+      case 'shot': tracer(e.from, e.to); sfx.shot(); fxEl('burst', '<b>BANG!</b>', anchor(e.to), 1100); break;
+      case 'hurt': fxEl('dmg', '−' + e.n, anchor(e.id)); shake(e.id); sfx.hurt(); break;
+      case 'heal': fxEl('heal', '+1', anchor(e.id)); sfx.heal(); break;
+      case 'dodge': fxEl('word miss', '빗나감!', anchor(e.id), 1100); sfx.miss(); break;
+      case 'spend': case 'discard': for (const c of e.cs) flyCard(DECK[c], e.id, 'pile'); sfx.card(); break;
+      case 'flip': showFlip(e); sfx.card(); break;
+      case 'boom': fxEl('burst boom', '<b>쾅!</b>', anchor(e.id), 1500); shake(e.id); sfx.boom(); break;
+      case 'die': fxEl('skull', '☠', anchor(e.id), 2200); banner(`${esc(nameOf(e.id))} 님이 쓰러졌습니다 — ${ROLES[e.role].name}`, 'die'); sfx.die(); break;
+      case 'jailed': fxEl('word', '감옥에서 턴을 거름', anchor(e.id), 1300); break;
+      case 'gatling': banner('기관총!', 'big'); sfx.shot(); setTimeout(sfx.shot, 140); setTimeout(sfx.shot, 280); break;
+      case 'indians': banner('인디언!', 'big'); break;
+      case 'steal': flyCard(e.c != null ? DECK[e.c] : null, e.from, e.to); if (e.to === me) toast(`${nameOf(e.from)} 님에게서 카드를 가져왔어요`); else if (e.from === me) toast(`${nameOf(e.to)} 님이 내 카드를 가져갔어요`); break;
+      case 'lose': if (e.c != null) flyCard(DECK[e.c], e.id, 'pile'); break;
+      case 'draw': for (let i = 0; i < Math.min(e.n || 1, 3); i++) setTimeout(() => flyCard(null, e.from === 'pile' ? 'pile' : 'deck', e.to), i * 120); break;
+      case 'take': flyCard(DECK[e.c], 'pile', e.id); break;
+      case 'show': fxEl('word', `두 번째 장 ${KINDS[DECK[e.c].k].name} ${RANKS[DECK[e.c].r]}${SUITS[DECK[e.c].s]}`, anchor(e.id), 1100); break;
+      case 'pass': flyCard(DECK[e.c], e.from, e.to); fxEl('word', '다이너마이트가 넘어간다', anchor(e.to), 900); break;
+      case 'over': sfx.win(); break;
+      case 'reshuffle': toast('버린 카드를 섞어 새 더미를 만들었어요'); break;
     }
+    await wait(ms);
   }
 }
 
-/* ───────────── 창 ───────────── */
-function openModal(html, sticky) {
-  $('#modalBox').innerHTML = html;
-  $('#modal').hidden = false;
-  $('#modal').dataset.sticky = sticky ? '1' : '';
-  $('#modalBox').querySelectorAll('[data-x]').forEach(b => b.onclick = closeModal);
-}
-function closeModal() {
-  const was = !$('#modal').hidden;
-  $('#modal').hidden = true; $('#modalBox').innerHTML = '';
-  if (was && S.view === 'game' && S.g) setTimeout(renderPrompt, 0);   // 가려져 있던 잡화점·킷 창을 다시 띄운다
-}
-$('#modal').onclick = e => { if (e.target === $('#modal') && !$('#modal').dataset.sticky) closeModal(); };
-addEventListener('keydown', e => { if (e.key === 'Escape' && !$('#modal').hidden && !$('#modal').dataset.sticky) closeModal(); });
-
-let toastT = null;
-function toast(m) { const t = $('#toast'); t.textContent = m; t.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 2600); }
-
-function showReveal() {
-  const p = myP(); if (!p) return;
-  const sh = S.g.v.players.find(x => x.role === 'sheriff');
-  openModal(`<h3>당신의 정체</h3>
-    <div class="reveal">
-      <div class="rcard"><div class="img" style="background-image:url(${ROLE_IMG(p.role)})"></div><h4>${ROLE_ICON[p.role]} ${ROLES[p.role].name}</h4><p>${ROLES[p.role].goal}</p></div>
-      <div class="rcard"><div class="img" style="background-image:url(${CHAR_IMG(p.char)})"></div><h4>${CHARS[p.char].name}</h4><p>생명 ${p.max} · ${CHARS[p.char].desc}</p></div>
-    </div>
-    <p style="text-align:center;margin:14px 0 0">${p.role === 'sheriff' ? '당신이 보안관입니다. 모두가 알고 있어요 — 당신부터 시작합니다.' : `보안관은 <b>${esc(sh.name)}</b> 님입니다. 정체는 들키지 않게!`}</p>
-    <div class="acts"><button class="btn big" data-x>확인</button></div>`);
+function showGate(ms) {
+  gateShown = true;
+  const g = G(), sh = g.players.find(p => p.role === 'sheriff');
+  const el = $('#gate');
+  el.innerHTML = `<div class="gate-in"><img src="${CHAR_IMG(sh.char)}" alt=""><p class="gate-k">⭐ 보안관</p><p class="gate-t"><b>${esc(sh.name)}</b> 님부터 시작합니다</p><p class="gate-s">${sh.id === me ? '당신이 보안관이에요 — 먼저 쏘세요!' : '차례는 시계 방향 — 내 왼쪽 사람이 다음이에요'}</p></div>`;
+  el.hidden = false;
+  setTimeout(() => { el.hidden = true; }, Math.min(ms, 3400));
 }
 
-function showResult() {
-  const v = S.g && S.g.v; if (!v || !v.over) return;
-  const host = S.room && S.room.host === S.pid;
-  const win = new Set(v.over.winners);
-  const title = v.over.team === 'sheriff' ? '⭐ 보안관 편 승리' : v.over.team === 'outlaw' ? '💀 무법자 승리' : '🎭 배신자 승리';
-  const meWon = S.me && win.has(S.me);
-  openModal(`<button class="x" data-x>✕</button><h3>${title}</h3>
-    ${S.me ? `<p style="text-align:center;font:900 18px var(--kr);margin:0">${meWon ? '🏆 이겼습니다!' : '졌습니다…'}</p>` : ''}
-    <div class="result-list">${v.players.map(p => `<div class="${win.has(p.id) ? 'win' : ''}"><b>${ROLE_ICON[p.role]} ${esc(p.name)}</b><br>${ROLES[p.role].name} · ${CHARS[p.char].name}<br>${p.alive ? '생존' : '☠ 쓰러짐'}</div>`).join('')}</div>
-    <div class="acts">${host ? '<button class="btn big" id="againBtn">다시 하기</button>' : '<span style="opacity:.7;align-self:center">방장이 다시 하기를 누르면 대기실로 돌아갑니다</span>'}<button class="btn ghost" id="toLobby">대기방으로</button></div>`);
-  if ($('#againBtn')) $('#againBtn').onclick = () => { closeModal(); send({ t: 'again' }); };
-  $('#toLobby').onclick = () => { closeModal(); send({ t: 'leave' }); };
+/* 표정 · 말풍선 */
+function floatEmo(pid, e) { if (screen === 'game') { const at = anchor(pid); fxEl('emo', EMO[e] || '❔', { x: at.x, y: at.y - 30 }, 1800); } }
+function bubble(pid, text) {
+  if (!G() || !G().players.some(p => p.id === pid)) return;
+  const at = anchor(pid);
+  fxEl('say', esc(text.length > 40 ? text.slice(0, 40) + '…' : text), { x: at.x, y: at.y - 50 }, Math.min(5000, 1600 + text.length * 70));
 }
+$('#reacts').addEventListener('click', e => { const b = e.target.closest('button'); if (b) { send({ t: 'react', e: Number(b.dataset.e) }); $('#reacts').classList.remove('open'); } });
+$('#bEmo').onclick = () => $('#reacts').classList.toggle('open');
 
-/* 크게 보기 — 카드나 인물에 마우스를 올리면 */
+/* 기록 */
+function addLogs(logs) {
+  const el = $('#logIn');
+  for (const l of logs || []) { const d = document.createElement('p'); d.className = 'l ' + (l.cls || ''); d.textContent = l.text; el.appendChild(d); }
+  while (el.children.length > 250) el.removeChild(el.firstChild);
+  el.scrollTop = el.scrollHeight;
+}
+$('#bLog').onclick = () => $('#log').classList.toggle('open');
+$('#logX').onclick = () => $('#log').classList.remove('open');
+
+/* ─────────────────────────── 끝 ─────────────────────────── */
+function showOver() {
+  const g = G(); if (!g || !g.over) return;
+  show('over');
+  const win = new Set(g.over.winners);
+  const T = { sheriff: ['보안관 편 승리', '무법자와 배신자를 모두 잡았습니다'], outlaw: ['무법자 승리', '보안관이 쓰러졌습니다'], renegade: ['배신자 승리', '배신자가 홀로 살아남았습니다'] }[g.over.team];
+  $('#oTitle').textContent = T[0];
+  $('#oSub').textContent = me != null ? (win.has(me) ? '🏆 당신이 이겼어요! ' : '아쉽게 졌어요. ') + T[1] : T[1];
+  $('#oFinal').innerHTML = g.players.map(p => `<li class="${win.has(p.id) ? 'win' : ''} ${p.alive ? '' : 'dead'}">
+    <img src="${CHAR_IMG(p.char)}" alt=""><span><b>${esc(p.name)}</b><small>${ROLE_EMO[p.role]} ${ROLES[p.role].name} · ${CHARS[p.char].name}</small><small>${p.alive ? '살아남음' : '☠ 쓰러짐'}</small></span></li>`).join('');
+  const host = !isSpec() && S.hostId === me;
+  $('#bAgain').hidden = !host;
+  $('#oWait').textContent = host ? '' : '방장이 다음 판을 고르는 중…';
+  $('#oSpecNote').hidden = !isSpec();
+}
+$('#bAgain').onclick = () => send({ t: 'again' });
+
+const leave = () => {
+  const code = ss.get('code'), token = ss.get('token');
+  ss.del('code'); ss.del('token');
+  specCtx = null; specId = null; specRejoin = false; resting = false; wokeUp = false;
+  $('#toast').classList.remove('on');
+  if (ws && ws.readyState === 1) send({ t: 'leave' });
+  else if (code && token) { leaving = true; connect(() => { send({ t: 'resume', code, token }); send({ t: 'leave' }); }); }
+  history.replaceState(null, '', location.pathname);
+  S = null; drawn = null; queue.length = 0;
+  show('setup');
+};
+$('#bLeave1').onclick = leave;
+$('#bLeave3').onclick = leave;
+$('#bLeave2').onclick = () => {
+  if (isSpec() || (G() && G().over)) return leave();
+  openPop(`<p class="pop-title">테이블을 떠날까요?</p><p class="pop-sub">판이 끝나기 전에 나가면 내 자리는 봇이 이어받아요.</p><div class="pop-acts"><button class="wbtn dark" data-x><span>계속하기</span></button><button class="wbtn red" id="leaveYes"><span>떠나기</span></button></div>`);
+  $('#leaveYes').onclick = () => { closePop(); leave(); };
+};
+
+/* ─────────────────────────── 창 · 크게 보기 ─────────────────────────── */
+function openPop(html, sticky) {
+  $('#popBox').innerHTML = html;
+  $('#pop').hidden = false;
+  $('#pop').dataset.sticky = sticky ? '1' : '';
+  $$('#popBox [data-x]').forEach(b => b.onclick = closePop);
+}
+function closePop() {
+  const was = !$('#pop').hidden;
+  $('#pop').hidden = true; $('#popBox').innerHTML = ''; $('#pop').dataset.sticky = '';
+  if (was && screen === 'game' && G()) setTimeout(renderAct, 0);
+}
+$('#pop').onclick = e => { if (e.target.id === 'pop' && !$('#pop').dataset.sticky) closePop(); };
+
 const tip = $('#tip');
 function hideTip() { tip.hidden = true; }
-function tipCard(c) {
-  return `${cardHtml(c)}<h4>${KINDS[c.k].name} <small style="font-weight:500">${RANKS[c.r]}${SUITS[c.s]}${KINDS[c.k].blue ? ' · 파란 카드' : ''}</small></h4><p>${esc(KINDS[c.k].desc)}</p>`;
-}
-function tipChar(k) { return `<div class="por" style="background-image:url(${CHAR_IMG(k)})"></div><h4>${CHARS[k].name}</h4><p>생명 ${CHARS[k].hp} · ${esc(CHARS[k].desc)}</p>`; }
+function tipCard(c) { return `${cardHTML(c)}<h4>${KINDS[c.k].name} <small>${RANKS[c.r]}${SUITS[c.s]}${KINDS[c.k].blue ? ' · 파란 카드(앞에 놓는다)' : ''}</small></h4><p>${esc(KINDS[c.k].desc)}</p>`; }
+function tipChar(k) { return `<img class="tip-por" src="${CHAR_IMG(k)}" alt=""><h4>${CHARS[k].name} <small>생명 ${CHARS[k].hp}</small></h4><p>${esc(CHARS[k].desc)}</p>`; }
 function placeTip(x, y) {
   const w = tip.offsetWidth, h = tip.offsetHeight;
   let L = x + 18, T = y - h / 2;
-  // 손 카드 위라면 카드를 가리지 않게 위로 띄운다
-  if (y > innerHeight * .62) { L = x - w / 2; T = y - h - 30; }
+  if (y > innerHeight * .6) { L = x - w / 2; T = y - h - 26; }
   if (L + w > innerWidth - 8) L = Math.min(x - w - 18, innerWidth - w - 8);
-  L = Math.max(8, L);
-  T = Math.max(8, Math.min(innerHeight - h - 8, T));
-  tip.style.left = L + 'px'; tip.style.top = T + 'px';
+  tip.style.left = Math.max(8, L) + 'px'; tip.style.top = Math.max(8, Math.min(innerHeight - h - 8, T)) + 'px';
 }
 let tipT = null, tipAt = null;
 document.addEventListener('mouseover', e => {
@@ -752,46 +1015,58 @@ document.addEventListener('mouseover', e => {
   const c = e.target.closest('.card[data-cid]');
   const ch = !c && e.target.closest('[data-char]');
   clearTimeout(tipT);
-  if (!(c && !c.closest('#tip')) && !ch) { hideTip(); return; }
-  tipT = setTimeout(() => {
-    tip.innerHTML = c ? tipCard({ ...DECK[+c.dataset.cid] }) : tipChar(ch.dataset.char);
-    tip.hidden = false;
-    if (tipAt) placeTip(tipAt.x, tipAt.y);
-  }, tip.hidden ? 380 : 60);
+  if ((!c || c.closest('#tip, .fly')) && !ch) { hideTip(); return; }
+  tipT = setTimeout(() => { if (!tipAt) return; tip.innerHTML = c ? tipCard(DECK[Number(c.dataset.cid)]) : tipChar(ch.dataset.char); tip.hidden = false; placeTip(tipAt.x, tipAt.y); }, tip.hidden ? 420 : 60);
 });
 document.addEventListener('mousemove', e => { tipAt = { x: e.clientX, y: e.clientY }; if (!tip.hidden) placeTip(e.clientX, e.clientY); });
 document.addEventListener('pointerdown', () => { clearTimeout(tipT); hideTip(); });
-function showTipFor(id) { if (matchMedia('(hover: none)').matches) toast(KINDS[DECK[id].k].name + ' — ' + KINDS[DECK[id].k].desc); }
+function tipFor(id) { if (matchMedia('(hover: none)').matches) toast(`${KINDS[DECK[id].k].name} — ${KINDS[DECK[id].k].desc}`); }
 
-/* ───────────── 규칙 ───────────── */
-function showRules() {
-  const cards = Object.entries(KINDS).map(([k, d]) => `<div><b>${d.name}</b>${d.blue ? ' 🟦' : ''} — ${esc(d.desc)}</div>`).join('');
-  const chars = Object.entries(CHARS).map(([k, d]) => `<div><b>${d.name}</b> (${d.hp}) — ${esc(d.desc)}</div>`).join('');
-  openModal(`<button class="x" data-x>✕</button><div class="rules"><h3>뱅! 규칙</h3>
-    <h4>정체</h4>
-    <p>모두 역할 카드를 한 장씩 몰래 받습니다. <b>보안관</b>만 정체를 드러내고, 나머지는 숨깁니다.</p>
-    <ul><li>⭐ <b>보안관</b> — 무법자와 배신자를 모두 쓰러뜨리면 승리 (생명 +1)</li>
-    <li>🔰 <b>부관</b> — 보안관을 도와 같은 목표</li>
-    <li>💀 <b>무법자</b> — 보안관을 쓰러뜨리면 승리</li>
-    <li>🎭 <b>배신자</b> — 혼자 살아남으면 승리. 보안관은 맨 마지막에 쓰러뜨려야 합니다</li></ul>
-    <p>4명: 보안관 · 배신자 · 무법자 2 / 5명: +부관 / 6명: +무법자 / 7명: +부관</p>
+/* ─────────────────────────── 규칙 ─────────────────────────── */
+const HELP = {
+  basic: () => `
+    <p class="lead">정체를 숨긴 총잡이들이 서로를 쏘는 서부 카드게임. 4~7명이 한 테이블에 둘러앉는다.</p>
+    <div class="roles-strip">${Object.keys(ROLES).map(r => `<figure><img src="${ROLE_IMG(r)}" alt=""><figcaption>${ROLE_EMO[r]} <b>${ROLES[r].name}</b><small>${ROLES[r].goal}</small></figcaption></figure>`).join('')}</div>
+    <p>역할은 몰래 받는다. <b>보안관만 정체를 드러내고</b>, 생명이 1 더 많으며 먼저 시작한다. 4명: 보안관·배신자·무법자 2 / 5명: +부관 / 6명: +무법자 / 7명: +부관</p>
     <h4>내 차례</h4>
-    <ol><li>카드 2장을 뽑습니다.</li><li>카드를 원하는 만큼 냅니다. 단, <b>뱅!은 한 턴에 한 장</b>.</li><li>손 카드가 남은 생명보다 많으면 그만큼 버립니다.</li></ol>
+    <ol><li><b>뽑기</b> — 카드 2장을 뽑는다.</li><li><b>내기</b> — 원하는 만큼 카드를 낸다. 단, <b>뱅!은 한 턴에 한 장</b>. 앞에 놓는 파란 카드는 같은 것을 두 장 놓을 수 없고, 무기는 하나만.</li><li><b>버리기</b> — 손 카드가 남은 생명보다 많으면 그만큼 버린다.</li></ol>
     <h4>거리와 사거리</h4>
-    <p>거리는 살아 있는 사람 사이의 자리 수(왼쪽·오른쪽 중 가까운 쪽)입니다. 뱅!은 내 <b>사거리</b>(무기가 없으면 1) 안의 사람에게만 쏠 수 있습니다. 야생마는 남이 나를 볼 때 +1, 조준경은 내가 남을 볼 때 −1.</p>
+    <p>거리는 살아 있는 사람 사이의 자리 수(왼쪽·오른쪽 중 가까운 쪽). 뱅!은 내 <b>사거리</b> 안의 사람에게만 쏠 수 있다(무기가 없으면 콜트 45 · 사거리 1). 야생마는 남이 나를 볼 때 +1, 조준경은 내가 남을 볼 때 −1.</p>
     <h4>쓰러짐</h4>
-    <p>생명이 0이 되면 맥주로 버티지 못하는 한 쓰러지고 정체를 밝힙니다. 무법자를 쓰러뜨린 사람은 현상금으로 3장을 뽑고, 보안관이 부관을 쓰러뜨리면 보안관은 가진 카드를 모두 버립니다.</p>
+    <p>생명이 0이 되면 곧바로 맥주를 내 버틸 수 있다. 못 버티면 쓰러지고 정체를 밝힌다. <b>무법자를 쓰러뜨린 사람은 현상금으로 3장</b>을 뽑고, <b>보안관이 부관을 쓰러뜨리면</b> 보안관은 가진 카드를 모두 버린다.</p>
     <h4>뽑기!</h4>
-    <p>술통 · 감옥 · 다이너마이트는 더미 맨 위 카드를 뒤집어 무늬로 판가름합니다. 술통·감옥은 ♥면 성공, 다이너마이트는 ♠2~9면 터집니다.</p>
-    <h4>카드</h4><div class="grid">${cards}</div>
-    <h4>인물</h4><div class="grid">${chars}</div>
-    <h4>이 화면에서</h4>
-    <p>밝게 빛나는 카드를 누르면 고르고, 한 번 더 누르면(또는 두 번 누르면) 씁니다. 대상이 필요한 카드는 빨갛게 빛나는 자리를 누르세요. 카드나 인물 위에 마우스를 올리면 크게 보입니다. 시간이 다 되면 턴이 끝나고, 막기는 봇이 대신 고릅니다.</p>
-    <p>채팅은 자유지만, 손에 든 카드를 그대로 말하는 건 반칙이에요.</p>
-  </div>`);
-}
-$('#rulesBtn').onclick = showRules;
-$('#rulesBtn2').onclick = showRules;
+    <p>술통 · 감옥 · 다이너마이트는 더미 맨 위 카드를 뒤집어 무늬로 판가름한다. 술통 · 감옥은 ♥면 성공, 다이너마이트는 ♠2~9면 터져 생명 3을 잃는다. 턴을 시작할 때 다이너마이트를 먼저, 감옥을 나중에 본다.</p>
+    <h4>이기는 조건</h4>
+    <p>보안관이 쓰러지면 무법자 승리(단, 마지막에 배신자 혼자 남았다면 배신자 승리). 무법자와 배신자가 모두 쓰러지면 보안관 편 승리.</p>`,
+  cards: () => `<div class="help-cards">${Object.keys(KINDS).map(k => `<div class="hcard">${cardHTML(DECK.find(c => c.k === k))}<p><b>${KINDS[k].name}</b>${KINDS[k].blue ? ' <small>파란 카드</small>' : ''}<br>${esc(KINDS[k].desc)}</p></div>`).join('')}</div>`,
+  chars: () => `<div class="help-chars">${Object.keys(CHARS).map(k => `<div class="hch"><img src="${CHAR_IMG(k)}" alt=""><p><b>${CHARS[k].name}</b> <small>생명 ${CHARS[k].hp}</small><br>${esc(CHARS[k].desc)}</p></div>`).join('')}</div>`,
+  ui: () => `<ul class="tips">
+    <li>시작하면 역할 카드를 받고, <b>인물 카드 두 장 중 하나</b>를 고른다. 모두 고르면 보안관부터 시작한다.</li>
+    <li>내 차례에 <b>빛나는 카드</b>를 누르면 고르고, 한 번 더 누르면(또는 두 번 누르면) 쓴다. 대상이 필요한 카드는 <b>빨갛게 빛나는 자리</b>를 누른다.</li>
+    <li>못 내는 카드를 누르면 까닭을 알려 준다.</li>
+    <li>누가 나를 쏘면 아래 막대에 <b>막기 / 맞기</b>가 뜬다. 술통은 저절로 먼저 뽑는다.</li>
+    <li>카드나 인물 위에 마우스를 올리면 크게 보인다. 📜는 지금까지의 기록.</li>
+    <li>시간이 다 되면 턴은 끝나고 막기는 봇이 대신 고른다. 판 중에 나가면 그 자리는 봇이 이어받는다.</li>
+    <li>채팅은 자유지만 손에 든 카드를 그대로 말하는 건 반칙!</li></ul>`,
+};
+function helpTab(t) { $$('#helpTabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === t)); $('#helpBody').innerHTML = HELP[t](); $('#helpBody').scrollTop = 0; }
+const openHelp = () => { helpTab('basic'); $('#help').hidden = false; };
+$$('[data-help]').forEach(b => b.onclick = openHelp);
+$$('#helpTabs button').forEach(b => b.onclick = () => helpTab(b.dataset.tab));
+$('#bHelpX').onclick = () => { $('#help').hidden = true; };
+$('#help').onclick = e => { if (e.target.id === 'help') $('#help').hidden = true; };
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  $('#help').hidden = true; if (!$('#pop').dataset.sticky) closePop(); $('#log').classList.remove('open'); if (!$('#chat').hidden) chatOpen(false);
+});
 
-/* 이미 이름이 있으면 바로 들어간다(새로고침해도 하던 판으로) — 모든 선언이 끝난 뒤에 */
-if (S.name && S.pid) { connect(); go('lobby'); }
+/* 계측용 — ?qa 로 들어올 때만 연출을 손으로 틀어 본다 */
+if (new URLSearchParams(location.search).has('qa')) window.__qa = { playFx, G, me: () => me, feed: m => { show('game'); onState(m); } };
+
+/* ─────────────────────────── 시작 ─────────────────────────── */
+$('#gName').value = ls.get('bang.name') || '';
+const invited = new URLSearchParams(location.search).get('r');
+if (invited) $('#gCode').value = invited.toUpperCase().slice(0, 4);
+if (ss.get('code') && ss.get('token')) resume();
+else if (invited) show('setup');
+else show('title');

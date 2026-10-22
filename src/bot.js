@@ -84,7 +84,7 @@ export function decide(g, pid) {
     case 'play': return playTurn(g, me);
     case 'discard': return { a: 'discard', cs: worst(g, me, me.hand, q.n) };
     case 'react': {
-      // 결투에서 편끼리면 굳이 카드를 버리지 않는다 — 그래도 맞기 싫으니 웬만하면 막는다
+      if (q.barrel) return { a: 'barrel' };            // 술통이 있으면 먼저 뽑아 본다
       const ok = me.hand.filter(c => q.ok.includes(C(c).k))
         .sort((a, b) => (C(a).k === q.ok[0] ? -1 : 1) - (C(b).k === q.ok[0] ? -1 : 1));
       if (ok.length >= q.need) {
@@ -96,6 +96,7 @@ export function decide(g, pid) {
       }
       return { a: 'take' };
     }
+    case 'lucky': return { a: 'pick', c: (q.good && q.good[0] != null) ? q.good[0] : q.cards[0] };
     case 'dying': {
       const beer = me.hand.find(c => C(c).k === 'beer');
       if (beer && g.canBeer()) return { a: 'beer', c: beer };
@@ -131,7 +132,7 @@ function playTurn(g, me) {
 
   // 1. 체력
   if (me.char === 'sid' && me.hp <= 1 && me.hand.length >= 4) return { a: 'sid', cs: worst(g, me, me.hand, 2) };
-  if (first('beer') != null && (me.hp <= me.max - 1) && (me.hp <= 2 || me.hand.length > me.hp)) return { a: 'play', c: first('beer') };
+  if (first('beer') != null && g.canBeer() && (me.hp <= me.max - 1) && (me.hp <= 2 || me.hand.length > me.hp)) return { a: 'play', c: first('beer') };
   if (first('saloon') != null && me.hp < me.max) return { a: 'play', c: first('saloon') };
 
   // 2. 카드 더 뽑기

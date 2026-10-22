@@ -8,17 +8,18 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
-import { Hub } from './src/hub.js';
+
 
 const PORT = Number(process.argv[2] || process.env.PORT || 8860);
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), 'public');
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
   '.png': 'image/png', '.jpg': 'image/jpeg', '.webp': 'image/webp', '.svg': 'image/svg+xml', '.mp3': 'audio/mpeg', '.woff2': 'font/woff2', '.json': 'application/json' };
 
-const hub = new Hub({ fast: process.env.BANG_FAST === '1' || process.argv[3] === 'fast' });
+if (process.argv[3] === 'fast') process.env.BANG_FAST = '1';
+const { handle, disconnect, sweepRooms, rooms, countSockets } = await import('./src/hub.js');
 const server = http.createServer((req, res) => {
   let p = decodeURIComponent(new URL(req.url, 'http://x').pathname);
-  if (p === '/healthz') { res.end(JSON.stringify({ ok: true, rooms: hub.rooms.size })); return; }
+  if (p === '/healthz') { res.end(JSON.stringify({ ok: true, rooms: rooms.size })); return; }
   if (p.endsWith('/')) p += 'index.html';
   const f = path.join(ROOT, path.normalize(p));
   if (!f.startsWith(ROOT)) { res.writeHead(403); res.end(); return; }
@@ -29,11 +30,10 @@ const server = http.createServer((req, res) => {
   });
 });
 const wss = new WebSocketServer({ server, path: '/ws' });
+countSockets(() => wss.clients.size);
 wss.on('connection', ws => {
-  const s = { send: t => ws.readyState === 1 && ws.send(t), close: (c, r) => ws.close(c, r) };
-  hub.connect(s);
-  ws.on('message', d => { let m; try { m = JSON.parse(String(d)); } catch (_) { return; } if (m && m.t !== 'ping') hub.message(s, m); });
-  ws.on('close', () => hub.close(s));
+  ws.on('message', d => { let m; try { m = JSON.parse(String(d)); } catch (_) { return; } if (m && m.t !== 'ping') handle(ws, m); });
+  ws.on('close', () => disconnect(ws));
 });
-setInterval(() => hub.sweep(), 20_000).unref();
+setInterval(() => sweepRooms(), 20_000).unref();
 server.listen(PORT, () => console.log(`뱅! http://localhost:${PORT}`));

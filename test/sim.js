@@ -17,7 +17,7 @@ for (let i = 0; i < N; i++) {
     if (!r) throw new Error('봇이 답 못함 ' + g.req.kind);
     g.answer(g.req.to, r);
     // 카드 80장이 그대로인지
-    const total = (g.req && g.req.kind === 'kit' ? g.req.cards.length : 0) + g.deck.length + g.pile.length + g.store.length + g.players.reduce((a, p) => a + p.hand.length + p.table.length, 0);
+    const total = (g.req && g.req.kind === 'kit' ? g.req.cards.length : 0) + g.limbo.length + g.deck.length + g.pile.length + g.store.length + g.players.reduce((a, p) => a + p.hand.length + p.table.length, 0);
     if (total !== 80) throw new Error('카드 수 ' + total + ' after ' + JSON.stringify(r) + ' game ' + i);
     if (++s > 20000) throw new Error('끝나지 않음 game ' + i + ' round ' + g.round);
   }

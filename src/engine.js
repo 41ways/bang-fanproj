@@ -40,6 +40,7 @@ export class Game {
     this.deck = this.shuffle(this.cards.map(c => c.id));
     this.pile = [];             // 버린 카드, 끝이 맨 위
     this.store = [];            // 잡화점에 펼친 카드
+    this.limbo = [];            // 럭키 듀크가 고르는 중인 두 장
     this.turn = this.players.find(p => p.role === 'sheriff').id;
     this.bangs = 0;
     this.req = null;
@@ -166,13 +167,16 @@ export class Game {
       if (why) bad(why);
       return;
     }
+    if (q.kind === 'lucky') { if (r.a !== 'pick' || !q.cards.includes(r.c)) bad('두 장 중 하나를 고르세요'); return; }
     if (q.kind === 'discard') {
+      if (r.a === 'cancel') return;
       if (r.a !== 'discard' || !Array.isArray(r.cs) || r.cs.length !== q.n || new Set(r.cs).size !== q.n || !r.cs.every(inHand)) bad(q.n + '장을 골라 버리세요');
       return;
     }
     if (q.kind === 'react') {
       if (r.a === 'take') return;
-      if (r.a !== 'cards' || !Array.isArray(r.cs) || r.cs.length !== q.need || new Set(r.cs).size !== q.need || !r.cs.every(inHand)) bad('카드 ' + q.need + '장이 필요합니다');
+      if (r.a === 'barrel') { if (!q.barrel) bad('쓸 술통이 없습니다'); return; }
+      if (r.a !== 'cards' || !Array.isArray(r.cs) || r.cs.length < 1 || r.cs.length > q.need || new Set(r.cs).size !== r.cs.length || !r.cs.every(inHand)) bad('카드 ' + q.need + '장까지 낼 수 있습니다');
       if (!r.cs.every(c => q.ok.includes(this.C(c).k))) bad('그 카드로는 막을 수 없습니다');
       return;
     }
@@ -204,10 +208,7 @@ export class Game {
     if (k === 'bang') {
       if (this.bangs >= 1 && p.char !== 'willy' && !this.has(p, 'volcanic')) return '뱅!은 한 턴에 한 장만 쏠 수 있습니다';
     }
-    if (k === 'beer') {
-      if (!this.canBeer()) return '두 명만 남으면 맥주는 효과가 없습니다';
-      if (p.hp >= p.max) return '생명이 가득합니다';
-    }
+    // 맥주는 생명이 가득하거나 두 명만 남아도 낼 수는 있다 — 효과가 없을 뿐(FAQ Q16 · Q25). 화면이 한 번 묻는다
     if (def.blue && k !== 'jail') {
       if (this.has(p, k)) return '같은 카드를 두 장 놓을 수 없습니다';
     }
@@ -297,22 +298,27 @@ export class Game {
 
     yield* this.drawPhase(p);
 
+    /* 내기 → 버리기. 버리기에서 "취소"하면 내기로 돌아간다(BGA 와 같다) */
     for (;;) {
+      for (;;) {
+        if (!p.alive) return;
+        this.suzy();
+        if (!p.hand.length) { this.log(`${this.nm(p)} 님은 손에 카드가 없어 턴을 마칩니다.`); break; }
+        const r = yield* this.ask({ to: p.id, kind: 'play', moves: this.moves(p) });
+        if (r.a === 'end') break;
+        if (r.a === 'sid') { yield* this.sidHeal(p, r.cs); continue; }
+        yield* this.play(p, r.c, r.t, r.tc);
+      }
       if (!p.alive) return;
-      const r = yield* this.ask({ to: p.id, kind: 'play', moves: this.moves(p) });
-      if (r.a === 'end') break;
-      if (r.a === 'sid') { yield* this.sidHeal(p, r.cs); continue; }
-      yield* this.play(p, r.c, r.t, r.tc);
-    }
-
-    if (!p.alive) return;
-    this.suzy();
-    if (p.hand.length > p.hp) {
+      this.suzy();
+      if (p.hand.length <= p.hp) break;
       const n = p.hand.length - p.hp;
       const r = yield* this.ask({ to: p.id, kind: 'discard', n });
+      if (r.a === 'cancel') continue;
       for (const c of r.cs) { this.fromHand(p, c); this.toPile(c); }
       this.log(`${this.nm(p)} 님이 카드 ${n}장을 버렸습니다.`);
       this.emit({ fx: 'discard', id: p.id, cs: r.cs });
+      break;
     }
   }
 
@@ -322,7 +328,14 @@ export class Game {
     const got = [];
     for (let i = 0; i < n; i++) { const c = this.draw(); if (c != null) got.push(c); }
     if (!got.length) return true;
-    const pick = got.find(c => good(this.C(c))) ?? got[0];
+    let pick = got[0];
+    if (got.length > 1) {
+      // 럭키 듀크는 두 장을 보고 직접 고른다
+      this.limbo = [...got];
+      const r = yield* this.ask({ to: p.id, kind: 'lucky', cards: [...got], what, good: got.filter(c => good(this.C(c))) });
+      this.limbo = [];
+      pick = r.c;
+    }
     for (const c of got) this.toPile(c);
     // 고른 카드가 맨 위에 보이게
     this.pile.splice(this.pile.indexOf(pick), 1); this.pile.push(pick);
@@ -422,6 +435,7 @@ export class Game {
         yield* this.shoot(p, T, p.char === 'slab' ? 2 : 1, '뱅!');
         break;
       case 'beer':
+        if (!this.canBeer() || p.hp >= p.max) { this.log(`${this.nm(p)} 님이 맥주를 마셨지만 아무 효과가 없습니다.`); break; }
         p.hp = Math.min(p.max, p.hp + 1);
         this.log(`${this.nm(p)} 님이 맥주를 마셨습니다.`, 'heal');
         this.emit({ fx: 'heal', id: p.id });
@@ -493,7 +507,7 @@ export class Game {
           if (!q.alive) continue;
           this.hit_(p, q);
           const ok = q.char === 'calamity' ? ['bang', 'missed'] : ['bang'];
-          const r = (q.hand.some(x => ok.includes(this.C(x).k)))
+          const r = q.hand.length
             ? yield* this.ask({ to: q.id, kind: 'react', why: 'indians', from: p.id, need: 1, ok })
             : { a: 'take' };
           if (r.a === 'cards') { this.spend(q, r.cs); this.log(`${this.nm(q)} 님이 뱅!을 버려 피했습니다.`); }
@@ -507,10 +521,11 @@ export class Game {
         let cur = T, oth = p;
         for (;;) {
           const ok = cur.char === 'calamity' ? ['bang', 'missed'] : ['bang'];
-          const r = (cur.hand.some(x => ok.includes(this.C(x).k)))
+          const r = cur.hand.length
             ? yield* this.ask({ to: cur.id, kind: 'react', why: 'duel', from: oth.id, need: 1, ok })
             : { a: 'take' };
-          if (r.a === 'take') { yield* this.hurt(cur, 1, oth); break; }
+          // 결투를 건 사람이 지면 아무도 탓하지 않는다 — 현상금도, 엘 그링고도 없다(FAQ Q21 · Q23)
+          if (r.a === 'take') { yield* this.hurt(cur, 1, cur === p ? null : oth); break; }
           this.spend(cur, r.cs);
           this.log(`${this.nm(cur)} 님이 뱅!을 버렸습니다.`);
           [cur, oth] = [oth, cur];
@@ -522,25 +537,39 @@ export class Game {
 
   spend(p, cs) { for (const c of cs) { this.fromHand(p, c); this.toPile(c); } this.emit({ fx: 'spend', id: p.id, cs }); }
 
-  /** 뱅! · 기관총 한 발. need = 막는 데 필요한 빗나감! 수 */
+  /** 뱅! · 기관총 한 발. need = 막는 데 필요한 빗나감! 수.
+   *  BGA 처럼 술통은 "술통 쓰기"를 눌러야 뽑는다(공격 하나에 술통 하나당 한 번). 손에 카드가 있으면
+   *  막을 카드가 없어도 묻는다 — 바로 맞으면 "빗나감!이 없구나" 하고 손이 드러나기 때문이다. */
   *shoot(src, T, need, what) {
     this.emit({ fx: 'shot', from: src.id, to: T.id });
-    const barrels = (this.has(T, 'barrel') ? 1 : 0) + (T.char === 'jourdonnais' ? 1 : 0);
-    for (let i = 0; i < barrels && need > 0; i++) {
-      if (yield* this.flip(T, c => c.s === 'H', '술통')) need--;
-    }
-    if (need <= 0) { this.log(`${this.nm(T)} 님이 술통 뒤로 피했습니다.`); this.emit({ fx: 'dodge', id: T.id }); return; }
     const ok = T.char === 'calamity' ? ['missed', 'bang'] : ['missed'];
-    const r = T.hand.filter(x => ok.includes(this.C(x).k)).length >= need
-      ? yield* this.ask({ to: T.id, kind: 'react', why: what === '뱅!' ? 'bang' : 'gatling', from: src.id, need, ok })
-      : { a: 'take' };
-    if (r.a === 'cards') {
-      this.spend(T, r.cs);
-      this.log(`${this.nm(T)} 님: 빗나감!`);
-      this.emit({ fx: 'dodge', id: T.id });
+    let barrels = (this.has(T, 'barrel') ? 1 : 0) + (T.char === 'jourdonnais' ? 1 : 0);
+    for (;;) {
+      if (!barrels && !T.hand.length) { yield* this.hurt(T, 1, src); return; }
+      const r = yield* this.ask({ to: T.id, kind: 'react', why: what === '뱅!' ? 'bang' : 'gatling', from: src.id, need, ok, barrel: barrels });
+      if (r.a === 'barrel') {
+        barrels--;
+        if (yield* this.flip(T, c => c.s === 'H', '술통')) {
+          need--;
+          this.log(`술통 성공 — ${this.nm(T)} 님이 술통 뒤로 피했습니다.`);
+          this.emit({ fx: 'dodge', id: T.id });
+          if (need <= 0) return;
+          this.log(`그래도 빗나감!이 ${need}장 더 필요합니다.`);
+        } else this.log('술통 실패!');
+        continue;
+      }
+      if (r.a === 'cards') {
+        this.spend(T, r.cs);
+        need -= r.cs.length;
+        this.log(`${this.nm(T)} 님: 빗나감!`);
+        this.emit({ fx: 'dodge', id: T.id });
+        if (need <= 0) return;
+        this.log(`하지만 ${this.nm(T)} 님은 빗나감!이 ${need}장 더 필요합니다.`);
+        continue;
+      }
+      yield* this.hurt(T, 1, src);
       return;
     }
-    yield* this.hurt(T, 1, src);
   }
 
   /** 생명을 잃는다. src 는 그렇게 만든 사람(다이너마이트면 null) */
@@ -568,9 +597,6 @@ export class Game {
       const beers = this.canBeer() ? p.hand.filter(c => this.isK(c, 'beer')) : [];
       const sid = p.char === 'sid' && p.hand.length >= 2;
       if (!beers.length && !sid) break;
-      // 맥주·시드 능력을 다 써도 못 살면 묻지 않는다
-      const can = beers.length + (p.char === 'sid' ? Math.floor((p.hand.length - beers.length) / 2) : 0);
-      if (can < 1 - p.hp) break;
       const r = yield* this.ask({ to: p.id, kind: 'dying', need: 1 - p.hp });
       if (r.a === 'die') break;
       if (r.a === 'beer') {
@@ -663,7 +689,8 @@ export class Game {
       v.req = { kind: q.kind, to: q.to, seq: q.seq, why: q.why, from: q.from, need: q.need, n: q.n };
       if (q.to === pid) {
         if (q.kind === 'play') v.req.moves = q.moves = this.moves(me);
-        if (q.kind === 'react') v.req.ok = q.ok;
+        if (q.kind === 'react') { v.req.ok = q.ok; v.req.barrel = q.barrel; }
+        if (q.kind === 'lucky') { v.req.cards = q.cards.map(card); v.req.what = q.what; }
         if (q.kind === 'store') v.req.cards = q.cards.map(card);
         if (q.kind === 'kit') v.req.cards = q.cards.map(card);
         if (q.kind === 'pedro') v.req.top = card(q.top);

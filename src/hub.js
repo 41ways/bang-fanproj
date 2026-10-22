@@ -1,443 +1,605 @@
 /**
- * 뱅! — 대기방 · 방 · 채팅. 소켓이 어떤 것인지는 모른다(send · close 만 쓴다).
- * Node 서버(server.js)와 Cloudflare(worker.js)가 이 파일을 똑같이 쓴다.
+ * 뱅! — 방 · 자리 · 관전 · 채팅 · 시계. 판의 규칙은 engine.js, 봇의 머리는 bot.js.
  *
- * 사람은 pid(브라우저에 저장한 무작위 표식)로 알아본다. 새로고침해도 같은 사람이고, 판에 앉아 있었다면
- * 그 자리로 돌아간다. 판은 서버가 원본이고, 화면에는 사람마다 볼 수 있는 것만 내려보낸다.
+ * 짜임은 허브의 다른 게임(로보77 · 바퀴벌레 포커)과 같다.
+ *   create / join / resume(token) / rooms·unwatch(열린 방 목록) / cfg / addBot / kick / start / again / leave / chat / react
+ * 소켓은 send(문자열) · close() · readyState 만 쓴다 — Node(server.js)와 Cloudflare(worker.js)가 같이 쓴다.
  *
- * 시간: 내 턴은 opts.turn 초, 막기·고르기는 opts.react 초. 시간이 다 되면 턴은 끝내고
- * 막기는 봇이 대신 고른다. 한 번 시간을 넘긴 사람(자리 비움)은 다시 손댈 때까지 봇이 빠르게 대신 둔다.
+ * 판이 열리는 순서 (BGA 와 같다)
+ *   intro    역할 카드를 받고(보안관만 모두에게 드러난다) 인물 카드 두 장 중 하나를 고른다.
+ *            모두 고르거나 시간이 다 되면 →
+ *   playing  "보안관 ○○부터" 관문을 잠깐 보여 준 뒤 보안관의 첫 턴.
+ *
+ * 속도: 봇은 생각하는 틈(1.2~2.2초)에 더해, 방금 일어난 일(총알 · 뽑기! · 쓰러짐)을 화면이 다 보여 줄
+ * 만큼 더 기다렸다가 둔다. 사람 차례의 제한 시간도 그 연출이 끝난 뒤부터 잰다.
  */
 import { Game } from './engine.js';
 import { decide } from './bot.js';
-import { MIN_PLAYERS, MAX_PLAYERS } from '../public/cards.js';
+import { CHARS, ROLES_BY_N, MIN_PLAYERS, MAX_PLAYERS } from '../public/cards.js';
 
-const BOT_NAMES = ['빌리', '장고', '애니', '와이엇', '돌리', '부치', '캘빈', '로이', '매기', '행크', '조시', '루비'];
-const MAX_NAME = 12, MAX_TITLE = 24, MAX_CHAT = 200, CHAT_KEEP = 80;
-const TURN_SECS = [30, 45, 60, 90], REACT_SECS = [10, 15, 20, 30];
+const FAST = typeof process !== 'undefined' && !!process.env && process.env.BANG_FAST === '1';
+const MAX_SPECS = 10;
+const TURN_SECS = [30, 60, 90, 0];          // 0 = 무제한
+const REACT_SECS = [15, 20, 30];
+const INTRO_SECS = FAST ? 1 : 40;
+const GATE_MS = FAST ? 10 : 3200;            // "보안관 ○○부터" 관문
+const DC_GRACE = FAST ? 100 : 6000;          // 끊긴 사람 차례를 봇이 대신 두기까지
+const LOBBY_GRACE = FAST ? 200 : 20_000;
+const BOT_THINK = FAST ? [1, 5] : [1200, 2200];
+const BOT_NAMES = ['빌리', '장고', '애니', '와이엇', '돌리', '부치', '캘빈', '로이', '매기', '행크'];
 
-const clean = (s, max) => String(s == null ? '' : s).replace(/[\u0000-\u001f\u007f​-‏‪-‮⁦-⁩]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
+/** 연출 한 가지가 화면에서 걸리는 시간(ms) — app.js 의 FX_MS 와 같아야 한다 */
+const FX_MS = {
+  turn: 1300, shot: 900, hurt: 650, heal: 600, dodge: 750, flip: 1600, boom: 1600, die: 2400,
+  jailed: 1300, gatling: 1100, indians: 1100, play: 700, equip: 700, steal: 800, lose: 700,
+  store: 1000, take: 550, draw: 450, show: 1100, pass: 900, spend: 500, discard: 450, over: 1500, reshuffle: 800,
+};
+const fxMs = fx => FAST ? 0 : Math.min(6000, fx.reduce((a, e) => a + (FX_MS[e.fx] || 300), 0));
+
+/* ─────────────────────────── 유틸 ─────────────────────────── */
+
 const pick = a => a[Math.floor(Math.random() * a.length)];
-const ALPHA = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const rnd = (a, b) => a + Math.random() * (b - a);
+const clean = (s, max) => String(s == null ? '' : s)
+  .replace(/[\u0000-\u001f\u007f​-‏‪-‮⁦-⁩]/g, ' ')
+  .replace(/\s+/g, ' ').trim().slice(0, max);
+const token = () => Array.from(globalThis.crypto.getRandomValues(new Uint8Array(12)), b => b.toString(16).padStart(2, '0')).join('');
+function shuffle(a) { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
 
-export class Hub {
-  constructor(opt = {}) {
-    this.users = new Map();     // pid → { pid, name, sock, room, seen, afk }
-    this.rooms = new Map();     // code → room
-    this.lobbyChat = [];
-    this.fast = !!opt.fast;     // 시험용: 봇이 기다리지 않는다
-    this.dirty = false;
-    this.flushT = null;
+/* ─────────────────────────── 방 ─────────────────────────── */
+
+export const rooms = new Map();
+
+function makeCode() {
+  const A = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let c;
+  do c = Array.from({ length: 4 }, () => A[Math.floor(Math.random() * A.length)]).join('');
+  while (rooms.has(c));
+  return c;
+}
+
+function createRoom({ priv = false, spec = true } = {}) {
+  const room = {
+    code: makeCode(),
+    phase: 'lobby',                 // lobby | intro | playing | over
+    hostId: null, players: [], specs: [], nextId: 1,
+    cfg: { max: 7, turn: 60, react: 20, chars: 'random', priv: !!priv, spec: spec !== false },
+    game: null, intro: null, gate: 0,
+    deadline: 0, holdUntil: 0,
+    timers: { act: null, dc: null, host: null, intro: null },
+    lastActive: Date.now(), madeAt: Date.now(), gameNo: 0, pushN: 0,
+  };
+  rooms.set(room.code, room);
+  return room;
+}
+
+function addPlayer(room, { name, bot }) {
+  const p = { id: room.nextId++, token: token(), name: name || `총잡이 ${room.nextId - 1}`, bot: !!bot, ws: null, connected: !!bot, lastChat: 0, lastReact: 0, afk: false, logN: -1 };
+  room.players.push(p);
+  if (!p.bot && room.hostId == null) room.hostId = p.id;
+  return p;
+}
+const playerOf = (room, id) => room.players.find(p => p.id === id) || null;
+const live = room => room.phase === 'intro' || room.phase === 'playing';
+
+function pickHost(room) {
+  const next = room.players.find(p => !p.bot && p.connected) || room.players.find(p => !p.bot);
+  room.hostId = next ? next.id : null;
+}
+
+/** 대기실이면 자리를 뺀다. 판 중이면 봇이 이어받는다(카드가 사라지면 판이 안 된다) */
+function removePlayer(room, id) {
+  const i = room.players.findIndex(p => p.id === id);
+  if (i < 0) return;
+  const p = room.players[i];
+  clearTimeout(p.leaveT);
+  if (live(room)) {
+    p.bot = true; p.ws = null; p.connected = true; p.left = true;
+    if (room.game) { const gp = room.game.P(p.id); if (gp) gp.bot = true; }
+    if (room.hostId === p.id) pickHost(room);
+    sys(room, `${p.name} 님이 나갔어요. 남은 판은 봇이 이어서 합니다.`);
+    if (room.phase === 'intro') introPickBot(room, p);
+    else schedule(room);
+  } else {
+    room.players.splice(i, 1);
+    if (room.hostId === p.id) pickHost(room);
   }
+  listChanged();
+  seatSpecs(room);
+}
 
-  /* ───────────── 소켓 ───────────── */
-
-  send(sock, o) { if (sock) try { sock.send(JSON.stringify(o)); } catch (_) {} }
-  sendU(u, o) { if (u && u.sock) this.send(u.sock, o); }
-
-  connect(sock) { sock.u = null; }
-
-  close(sock) {
-    const u = sock.u;
-    if (!u || u.sock !== sock) return;
-    u.sock = null;
-    u.seen = Date.now();
-    const room = u.room && this.rooms.get(u.room);
-    if (room) {
-      // 새로고침이면 몇 초 안에 돌아온다 — 대기 중인 방에서도 자리를 잠깐 지켜 준다
-      if (room.phase === 'wait') setTimeout(() => { if (!u.sock && u.room === room.code && room.phase === 'wait') this.leaveRoom(u, true); }, this.fast ? 50 : 15_000);
-      this.pushRoom(room);
-      if (room.game) { this.schedule(room); this.pushGame(room); }
-    }
-    this.lobbyDirty();
+/* ── 관전자 ── */
+const specOf = (room, ws) => room.specs.find(s => s.ws === ws) || null;
+function addSpec(room, ws, name) {
+  watchers.delete(ws);
+  const sp = { id: room.nextId++, name, ws, lastChat: 0, logN: -1 };
+  room.specs.push(sp);
+  ws.roomCode = room.code; ws.playerId = null; ws.specId = sp.id;
+  send(ws, { t: 'welcome', role: 'spec', you: null, specId: sp.id, code: room.code });
+  pushState(room);
+  listChanged();
+}
+function removeSpec(room, ws) {
+  const i = room.specs.findIndex(s => s.ws === ws);
+  if (i >= 0) room.specs.splice(i, 1);
+  ws.specId = null;
+  return i >= 0;
+}
+/** 대기실로 돌아오면 구경하던 사람을 빈자리에 앉힌다 */
+function seatSpecs(room) {
+  if (room.phase !== 'lobby') return;
+  while (room.specs.length && room.players.length < room.cfg.max) {
+    const sp = room.specs.shift();
+    if (!sp.ws || sp.ws.readyState !== 1) continue;
+    const p = addPlayer(room, { name: sp.name });
+    sp.ws.specId = null;
+    attach(room, p, sp.ws, { seated: true });
+    sys(room, `${p.name} 님이 자리에 앉았어요.`);
   }
+}
 
-  message(sock, m) {
-    if (!m || typeof m.t !== 'string') return;
-    if (m.t === 'hello') return this.hello(sock, m);
-    const u = sock.u;
-    if (!u || u.sock !== sock) return;
-    u.seen = Date.now();
-    try {
-      switch (m.t) {
-        case 'name': u.name = clean(m.name, MAX_NAME) || u.name; this.sendU(u, { t: 'hi', pid: u.pid, name: u.name }); this.refreshName(u); break;
-        case 'create': this.create(u, m); break;
-        case 'join': this.join(u, String(m.code || '').toUpperCase()); break;
-        case 'leave': this.leaveRoom(u); break;
-        case 'chat': this.chat(u, m.text); break;
-        case 'addbot': this.addBot(u); break;
-        case 'kick': this.kick(u, m.pid); break;
-        case 'opt': this.setOpt(u, m); break;
-        case 'start': this.start(u); break;
-        case 'again': this.again(u); break;
-        case 'sit': this.sit(u); break;
-        case 'act': this.act(u, m); break;
-        case 'back': this.back(u); break;
-      }
-    } catch (e) {
-      this.sendU(u, { t: 'err', m: String(e.message || e) });
-    }
+function clearAll(room) { for (const k in room.timers) { clearTimeout(room.timers[k]); room.timers[k] = null; } }
+
+function dropRoom(room) {
+  clearAll(room);
+  for (const sp of room.specs) {
+    send(sp.ws, { t: 'err', msg: '방이 사라졌어요.', fatal: true });
+    sp.ws.roomCode = null; sp.ws.specId = null;
   }
+  room.specs = [];
+  rooms.delete(room.code);
+  listChanged();
+}
 
-  hello(sock, m) {
-    let pid = clean(m.pid, 40);
-    if (!/^[a-z0-9]{8,40}$/i.test(pid)) pid = Array.from({ length: 16 }, () => ALPHA[Math.floor(Math.random() * ALPHA.length)]).join('').toLowerCase();
-    let u = this.users.get(pid);
-    const name = clean(m.name, MAX_NAME) || (u && u.name) || '총잡이' + Math.floor(Math.random() * 900 + 100);
-    if (u && u.sock && u.sock !== sock) { this.send(u.sock, { t: 'kicked', m: '다른 창에서 접속했습니다' }); try { u.sock.close(4001, 'dup'); } catch (_) {} }
-    if (!u) { u = { pid, name, sock: null, room: null, seen: Date.now(), afk: false }; this.users.set(pid, u); }
-    u.sock = sock; u.name = name; u.seen = Date.now(); u.afk = false;
-    sock.u = u;
-    this.sendU(u, { t: 'hi', pid, name });
-    const room = u.room && this.rooms.get(u.room);
-    if (room) { this.refreshName(u); this.enterRoom(u, room); }
-    else { u.room = null; this.sendLobby(u, true); }
-    this.lobbyDirty();
+/* ─────────────────────────── 판 열기: 역할 · 인물 고르기 ─────────────────────────── */
+
+function startGame(room) {
+  clearAll(room);
+  room.gameNo++;
+  // 자리 순서를 섞는다 — 누가 보안관 옆에 앉느냐가 판을 가른다
+  shuffle(room.players);
+  const n = room.players.length;
+  const roles = shuffle([...ROLES_BY_N[n]]);
+  const deck = shuffle(Object.keys(CHARS));
+  // 인물: BGA 의 "Choose characters" — 무작위(기본)면 한 장, 고르기면 두 장 중 하나
+  const two = room.cfg.chars === 'pick';
+  room.intro = { mode: two ? 'pick' : 'random', roles: {}, offers: {}, picks: {}, ready: {}, ends: Date.now() + INTRO_SECS * 1000 };
+  room.players.forEach((p, i) => {
+    room.intro.roles[p.id] = roles[i];
+    room.intro.offers[p.id] = two ? [deck[i * 2], deck[i * 2 + 1]] : [deck[i]];
+    if (!two) room.intro.picks[p.id] = deck[i];
+    p.afk = false; p.logN = -1;
+  });
+  for (const s of room.specs) s.logN = -1;
+  room.phase = 'intro';
+  room.game = null;
+  sys(room, two ? '역할 카드를 나눠 줬어요. 인물을 골라 주세요.' : '역할 카드와 인물 카드를 나눠 줬어요. 확인하면 시작합니다.');
+  for (const p of room.players) if (p.bot) setTimeout(() => introPickBot(room, p), FAST ? 0 : rnd(1500, 5000));
+  room.timers.intro = setTimeout(() => finishIntro(room), INTRO_SECS * 1000);
+  pushState(room);
+  listChanged();
+}
+
+/** 봇은 둘 중 더 센 인물을 고른다 — 대충 이 순서 */
+const CHAR_RANK = ['willy', 'slab', 'jourdonnais', 'calamity', 'bart', 'rose', 'paul', 'sid', 'lucky', 'kit', 'blackjack', 'jesse', 'pedro', 'elgringo', 'suzy', 'vulture'];
+function introPickBot(room, p) {
+  if (room.phase !== 'intro' || room.intro.ready[p.id]) return;
+  const o = room.intro.offers[p.id];
+  introPick(room, p, o.length > 1 && CHAR_RANK.indexOf(o[1]) < CHAR_RANK.indexOf(o[0]) ? o[1] : o[0]);
+}
+/** 인물을 고른다(고르기 판) · 확인한다(무작위 판) — 모두 마치면 판이 열린다 */
+function introPick(room, p, c) {
+  const I = room.intro;
+  if (room.phase !== 'intro' || I.ready[p.id] || !I.offers[p.id].includes(c)) return;
+  I.picks[p.id] = c;
+  I.ready[p.id] = true;
+  if (room.players.every(q => I.ready[q.id])) finishIntro(room);
+  else pushState(room);
+}
+function finishIntro(room) {
+  if (room.phase !== 'intro') return;
+  const I = room.intro;
+  clearTimeout(room.timers.intro);
+  for (const p of room.players) if (!I.picks[p.id]) I.picks[p.id] = I.offers[p.id][0];
+  room.game = new Game(room.players.map(p => ({ id: p.id, name: p.name, bot: p.bot })), {
+    roles: room.players.map(p => I.roles[p.id]),
+    chars: room.players.map(p => I.picks[p.id]),
+  });
+  room.game.fx = [];                 // 첫 "차례" 연출은 관문이 대신한다
+  room.phase = 'playing';
+  room.gate = Date.now() + GATE_MS;
+  room.holdUntil = room.gate;
+  const sh = room.game.players.find(x => x.role === 'sheriff');
+  sys(room, `보안관은 ${sh.name} 님! 보안관부터 시작합니다.`);
+  schedule(room);
+  pushState(room);
+  listChanged();
+}
+
+/* ─────────────────────────── 판 진행 ─────────────────────────── */
+
+/** 이 자리를 지금 봇이 대신 두는가 — 'bot'(봇·나간 사람) · 'away'(끊김·자리 비움) · null(사람) */
+function autoOf(room, id) {
+  const p = playerOf(room, id);
+  if (!p || p.bot) return 'bot';
+  if (!p.connected) return 'away';
+  if (p.afk) return 'away';
+  return null;
+}
+
+function act(room, p, r, seq) {
+  const g = room.game;
+  if (!g || room.phase !== 'playing') return;
+  if (!g.req || g.req.to !== p.id) return send(p.ws, { t: 'err', msg: '지금은 내 차례가 아니에요.' });
+  if (seq !== g.req.seq) return;                       // 한 발 늦은 답
+  p.afk = false;
+  try { g.answer(p.id, r); }
+  catch (e) { return send(p.ws, { t: 'err', msg: String(e.message || e) }); }
+  after(room);
+}
+
+/** 판이 한 걸음 나간 뒤 — 연출 시간을 재 두고, 모두에게 보내고, 다음 시계를 건다 */
+function after(room) {
+  const g = room.game;
+  const ms = fxMs(g.fx);
+  room.holdUntil = Math.max(room.holdUntil, Date.now()) + ms;
+  if (g.over && room.phase === 'playing') {
+    room.phase = 'over';
+    clearAll(room);
+    listChanged();
   }
+  schedule(room);
+  pushState(room, g.fx);
+  g.fx = [];
+}
 
-  /* ───────────── 대기방(로비) ───────────── */
-
-  roomList() {
-    return [...this.rooms.values()].map(r => ({
-      code: r.code, title: r.title, n: r.seats.length, max: r.opts.max, phase: r.phase,
-      host: (this.users.get(r.host) || {}).name || '',
-      humans: r.seats.filter(s => !s.bot).length, watch: this.watchers(r).length,
-    })).sort((a, b) => (a.phase === 'wait' ? 0 : 1) - (b.phase === 'wait' ? 0 : 1) || b.n - a.n);
+function schedule(room) {
+  clearTimeout(room.timers.act); room.timers.act = null;
+  clearTimeout(room.timers.dc); room.timers.dc = null;
+  const g = room.game;
+  if (!g || g.over || !g.req || room.phase !== 'playing') { room.deadline = 0; return; }
+  const q = g.req, seq = q.seq;
+  const hold = Math.max(0, room.holdUntil - Date.now());
+  const run = fn => () => {
+    room.timers.act = null;
+    if (room.game !== g || !g.req || g.req.seq !== seq) return;
+    try { fn(); } catch (e) { console.error('auto', e); try { g.answer(q.to, decide(g, q.to)); } catch (_) { g.answer(q.to, { a: q.kind === 'play' ? 'end' : 'take' }); } }
+    after(room);
+  };
+  const who = autoOf(room, q.to);
+  if (who === 'bot') {
+    room.deadline = 0;
+    room.timers.act = setTimeout(run(() => g.answer(q.to, decide(g, q.to))), hold + rnd(...BOT_THINK));
+    return;
   }
-  online() { return [...this.users.values()].filter(u => u.sock).map(u => ({ name: u.name, room: u.room })); }
-  sendLobby(u, withChat) {
-    const o = { t: 'lobby', rooms: this.roomList(), online: this.online() };
-    if (withChat) o.chat = this.lobbyChat;
-    this.sendU(u, o);
+  if (who === 'away') {
+    room.deadline = 0;
+    room.timers.act = setTimeout(run(() => g.answer(q.to, decide(g, q.to))), hold + (FAST ? 0 : DC_GRACE));
+    return;
   }
-  lobbyDirty() {
-    if (this.flushT) return;
-    this.flushT = setTimeout(() => {
-      this.flushT = null;
-      const o = JSON.stringify({ t: 'lobby', rooms: this.roomList(), online: this.online() });
-      for (const u of this.users.values()) if (u.sock && !u.room) try { u.sock.send(o); } catch (_) {}
-    }, this.fast ? 0 : 400);
-  }
+  const secs = q.kind === 'play' ? room.cfg.turn : room.cfg.react;
+  if (!secs) { room.deadline = 0; return; }           // 무제한
+  room.deadline = Date.now() + hold + secs * 1000;
+  room.timers.act = setTimeout(run(() => {
+    const p = playerOf(room, q.to);
+    if (p) { p.afk = true; send(p.ws, { t: 'err', msg: '시간이 다 되어 봇이 대신 둡니다. 아무 단추나 누르면 돌아와요.' }); }
+    g.answer(q.to, q.kind === 'play' ? { a: 'end' } : decide(g, q.to));
+  }), hold + secs * 1000 + 250);
+}
 
-  chat(u, text) {
-    text = clean(text, MAX_CHAT);
-    if (!text) return;
-    const now = Date.now();
-    if (u.lastChat && now - u.lastChat < 400) return;
-    u.lastChat = now;
-    const msg = { name: u.name, pid: u.pid, text, ts: now };
-    const room = u.room && this.rooms.get(u.room);
-    if (room) {
-      room.chat.push(msg); if (room.chat.length > CHAT_KEEP) room.chat.shift();
-      for (const v of this.members(room)) this.sendU(v, { t: 'chat', ch: 'room', m: msg });
-    } else {
-      this.lobbyChat.push(msg); if (this.lobbyChat.length > CHAT_KEEP) this.lobbyChat.shift();
-      for (const v of this.users.values()) if (v.sock && !v.room) this.sendU(v, { t: 'chat', ch: 'lobby', m: msg });
-    }
-  }
-  sysChat(room, text) {
-    const msg = { sys: true, text, ts: Date.now() };
-    room.chat.push(msg); if (room.chat.length > CHAT_KEEP) room.chat.shift();
-    for (const v of this.members(room)) this.sendU(v, { t: 'chat', ch: 'room', m: msg });
-  }
+/* ─────────────────────────── 통신 ─────────────────────────── */
 
-  /* ───────────── 방 ───────────── */
+function send(ws, obj) { if (ws && ws.readyState === 1) { try { ws.send(JSON.stringify(obj)); } catch (_) {} } }
 
-  newCode() { let c; do c = Array.from({ length: 4 }, () => pick(ALPHA)).join(''); while (this.rooms.has(c)); return c; }
-
-  create(u, m) {
-    if (u.room) this.leaveRoom(u, true);
-    const room = {
-      code: this.newCode(), title: clean(m.title, MAX_TITLE) || `${u.name}의 방`,
-      host: u.pid, phase: 'wait', seats: [], opts: { max: 7, turn: 60, react: 15 },
-      game: null, chat: [], timer: null, deadline: 0, created: Date.now(), empty: 0, botN: 0,
+function stateFor(room, me, fx) {
+  const base = {
+    t: 'state', code: room.code, phase: room.phase, hostId: room.hostId, cfg: room.cfg,
+    min: MIN_PLAYERS, maxCap: MAX_PLAYERS, gameNo: room.gameNo, now: Date.now(),
+    you: me ? me.id : null, role: me ? 'player' : 'spec',
+    specs: room.specs.map(s => s.name),
+    players: room.players.map(p => ({ id: p.id, name: p.name, bot: p.bot, left: !!p.left, connected: p.connected })),
+  };
+  if (room.phase === 'intro') {
+    const I = room.intro;
+    const sh = room.players.find(p => I.roles[p.id] === 'sheriff');
+    base.intro = {
+      ends: I.ends, sheriff: sh ? sh.id : null,
+      myRole: me ? I.roles[me.id] : null,
+      offers: me ? I.offers[me.id] : null,
+      mode: I.mode,
+      myPick: me && I.ready[me.id] ? I.picks[me.id] : null,
+      picked: room.players.filter(p => I.ready[p.id]).map(p => p.id),
     };
-    this.rooms.set(room.code, room);
-    room.seats.push({ id: u.pid, pid: u.pid, name: u.name, bot: false });
-    u.room = room.code;
-    this.sysChat(room, `${u.name} 님이 방을 열었습니다.`);
-    this.enterRoom(u, room);
-    this.lobbyDirty();
   }
-
-  join(u, code) {
-    const room = this.rooms.get(code);
-    if (!room) throw new Error('없는 방입니다');
-    if (u.room === code) return this.enterRoom(u, room);
-    if (u.room) this.leaveRoom(u, true);
-    u.room = code;
-    if (room.phase === 'wait') {
-      if (room.seats.length >= room.opts.max) {
-        // 봇 자리가 있으면 사람에게 내준다
-        const b = room.seats.findIndex(s => s.bot);
-        if (b < 0) { u.room = null; throw new Error('방이 꽉 찼습니다'); }
-        room.seats.splice(b, 1);
-      }
-      room.seats.push({ id: u.pid, pid: u.pid, name: u.name, bot: false });
-      this.sysChat(room, `${u.name} 님이 들어왔습니다.`);
-    } else {
-      const mine = room.seats.find(s => s.pid === u.pid && s.gone);
-      if (mine && room.phase === 'play') { mine.gone = false; this.sysChat(room, `${u.name} 님이 자리로 돌아왔습니다.`); }
-      else this.sysChat(room, `${u.name} 님이 구경하러 왔습니다.`);
-    }
-    this.enterRoom(u, room);
-    this.lobbyDirty();
-  }
-
-  /** 방 화면을 처음부터 보낸다(들어올 때 · 다시 붙을 때) */
-  enterRoom(u, room) {
-    u.logN = -1;
-    this.sendU(u, { t: 'room', room: this.roomInfo(room), chat: room.chat });
-    if (room.game) this.pushGame(room, u);
-  }
-
-  leaveRoom(u, quiet) {
-    const room = u.room && this.rooms.get(u.room);
-    u.room = null;
-    if (room) {
-      const i = room.seats.findIndex(s => s.pid === u.pid);
-      if (room.phase === 'wait' || room.phase === 'over') {
-        if (i >= 0) room.seats.splice(i, 1);
-      } else if (i >= 0) {
-        room.seats[i].gone = true;                     // 판이 돌고 있으면 자리는 봇이 맡는다
-        this.sysChat(room, `${u.name} 님이 나갔습니다. 남은 판은 봇이 대신합니다.`);
-      }
-      if (i >= 0 && room.phase !== 'play') this.sysChat(room, `${u.name} 님이 나갔습니다.`);
-      if (room.host === u.pid) this.passHost(room);
-      if (!this.humansIn(room).length) this.dropRoom(room);
-      else { this.pushRoom(room); if (room.game) this.schedule(room); }
-    }
-    if (!quiet || u.sock) this.sendLobby(u, true);
-    this.lobbyDirty();
-  }
-
-  passHost(room) {
-    const next = this.humansIn(room).find(v => v.sock) || this.humansIn(room)[0];
-    if (next) { room.host = next.pid; this.sysChat(room, `${next.name} 님이 방장이 되었습니다.`); }
-  }
-
-  /** 방 안에 있는 사람(앉은 사람 + 구경꾼) */
-  members(room) { return [...this.users.values()].filter(v => v.room === room.code); }
-  humansIn(room) { return this.members(room); }
-  watchers(room) { return this.members(room).filter(v => !room.seats.some(s => s.pid === v.pid && !s.gone)); }
-
-  dropRoom(room) {
-    clearTimeout(room.timer);
-    this.rooms.delete(room.code);
-    for (const v of this.members(room)) { v.room = null; this.sendLobby(v, true); }
-    this.lobbyDirty();
-  }
-
-  roomInfo(room) {
-    return {
-      code: room.code, title: room.title, host: room.host, phase: room.phase, opts: room.opts,
-      seats: room.seats.map(s => {
-        const v = s.bot ? null : this.users.get(s.pid);
-        return { id: s.id, name: s.name, bot: s.bot, gone: !!s.gone, on: s.bot || !!(v && v.sock && v.room === room.code) };
-      }),
-      watchers: this.watchers(room).map(v => v.name),
-      min: MIN_PLAYERS,
-    };
-  }
-  pushRoom(room) { const info = this.roomInfo(room); for (const v of this.members(room)) this.sendU(v, { t: 'room', room: info }); }
-
-  refreshName(u) {
-    const room = u.room && this.rooms.get(u.room);
-    if (!room) return;
-    const s = room.seats.find(x => x.pid === u.pid);
-    if (s && room.phase === 'wait') { s.name = u.name; this.pushRoom(room); }
-  }
-
-  hostOnly(u) {
-    const room = u.room && this.rooms.get(u.room);
-    if (!room) throw new Error('방에 있지 않습니다');
-    if (room.host !== u.pid) throw new Error('방장만 할 수 있습니다');
-    return room;
-  }
-
-  addBot(u) {
-    const room = this.hostOnly(u);
-    if (room.phase !== 'wait') return;
-    if (room.seats.length >= room.opts.max) throw new Error('자리가 없습니다');
-    const used = new Set(room.seats.map(s => s.name));
-    const name = BOT_NAMES.find(n => !used.has(n)) || '봇' + (room.botN + 1);
-    room.seats.push({ id: 'bot' + (++room.botN), pid: null, name, bot: true });
-    this.pushRoom(room); this.lobbyDirty();
-  }
-
-  kick(u, id) {
-    const room = this.hostOnly(u);
-    if (room.phase !== 'wait') return;
-    const i = room.seats.findIndex(s => s.id === id);
-    if (i < 0 || room.seats[i].pid === u.pid) return;
-    const s = room.seats[i];
-    room.seats.splice(i, 1);
-    if (!s.bot) {
-      const v = this.users.get(s.pid);
-      if (v) { v.room = null; this.sendU(v, { t: 'err', m: '방장이 내보냈습니다' }); this.sendLobby(v, true); }
-      this.sysChat(room, `${s.name} 님이 나갔습니다.`);
-    }
-    this.pushRoom(room); this.lobbyDirty();
-  }
-
-  setOpt(u, m) {
-    const room = this.hostOnly(u);
-    if (room.phase !== 'wait') return;
-    if (TURN_SECS.includes(m.turn)) room.opts.turn = m.turn;
-    if (REACT_SECS.includes(m.react)) room.opts.react = m.react;
-    if (Number.isInteger(m.max) && m.max >= MIN_PLAYERS && m.max <= MAX_PLAYERS && m.max >= room.seats.length) room.opts.max = m.max;
-    if (typeof m.title === 'string') room.title = clean(m.title, MAX_TITLE) || room.title;
-    this.pushRoom(room); this.lobbyDirty();
-  }
-
-  /** 구경하던 사람이 끝난 방/대기 중인 방에 앉는다 */
-  sit(u) {
-    const room = u.room && this.rooms.get(u.room);
-    if (!room || room.phase !== 'wait' || room.seats.some(s => s.pid === u.pid)) return;
-    if (room.seats.length >= room.opts.max) {
-      const b = room.seats.findIndex(s => s.bot);
-      if (b < 0) throw new Error('자리가 없습니다');
-      room.seats.splice(b, 1);
-    }
-    room.seats.push({ id: u.pid, pid: u.pid, name: u.name, bot: false });
-    this.pushRoom(room); this.lobbyDirty();
-  }
-
-  start(u) {
-    const room = this.hostOnly(u);
-    if (room.phase !== 'wait') return;
-    // 모자란 자리는 봇으로 채운다
-    while (room.seats.length < MIN_PLAYERS) this.addBot(u);
-    // 자리 순서를 섞는다 — 누가 보안관 옆인지가 판을 가른다
-    const seats = [...room.seats];
-    for (let i = seats.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [seats[i], seats[j]] = [seats[j], seats[i]]; }
-    room.seats = seats;
-    room.game = new Game(seats.map(s => ({ id: s.id, name: s.name, bot: s.bot })));
-    room.phase = 'play';
-    for (const v of this.members(room)) { v.logN = -1; v.afk = false; }
-    this.sysChat(room, '판이 시작되었습니다. 역할 카드를 확인하세요!');
-    this.after(room);
-    this.lobbyDirty();
-  }
-
-  again(u) {
-    const room = this.hostOnly(u);
-    if (room.phase !== 'over') return;
-    clearTimeout(room.timer);
-    room.phase = 'wait'; room.game = null;
-    // 나간 사람 자리는 비운다
-    room.seats = room.seats.filter(s => s.bot || (!s.gone && this.users.get(s.pid) && this.users.get(s.pid).room === room.code));
-    for (const v of this.members(room)) this.sendU(v, { t: 'room', room: this.roomInfo(room) });
-    this.lobbyDirty();
-  }
-
-  /* ───────────── 판 ───────────── */
-
-  seatOf(room, id) { return room.seats.find(s => s.id === id); }
-
-  /** 이 자리를 지금 봇이 대신해야 하는가 */
-  auto(room, id) {
-    const s = this.seatOf(room, id);
-    if (!s || s.bot || s.gone) return 'bot';
-    const v = this.users.get(s.pid);
-    if (!v || !v.sock || v.room !== room.code) return 'away';
-    if (v.afk) return 'away';
-    return null;
-  }
-
-  /** 자리 비움에서 돌아왔다 */
-  back(u) {
-    u.afk = false;
-    const room = u.room && this.rooms.get(u.room);
-    if (room && room.game && room.phase === 'play') { this.schedule(room); this.pushGame(room); }
-  }
-
-  act(u, m) {
-    const room = u.room && this.rooms.get(u.room);
-    if (!room || !room.game || room.phase !== 'play') return;
+  if (room.game && (room.phase === 'playing' || room.phase === 'over')) {
     const g = room.game;
-    const s = room.seats.find(x => x.pid === u.pid && !x.gone);
-    if (!s || !g.req || g.req.to !== s.id) throw new Error('지금은 당신 차례가 아닙니다');
-    if (m.seq !== g.req.seq) return;              // 늦게 온 답
-    u.afk = false;
-    g.answer(s.id, m.r);
-    this.after(room);
+    const who = me || null;
+    base.g = g.view(who ? who.id : null);
+    base.deadline = room.deadline;
+    base.secs = g.req ? (g.req.kind === 'play' ? room.cfg.turn : room.cfg.react) : 0;
+    base.gate = room.gate;
+    base.auto = who ? !!autoOf(room, who.id) && !who.bot : false;
+    const holder = who || null;
+    const reset = !holder || holder.logN < 0;
+    base.logs = reset ? g.logs.slice(-150) : g.logs.filter(l => l.n >= holder.logN);
+    base.reset = reset;
+    if (holder) holder.logN = g.logs.length ? g.logs[g.logs.length - 1].n + 1 : 0;
+    base.fx = fx || [];
   }
+  return base;
+}
 
-  /** 판이 한 걸음 나간 뒤: 모두에게 보내고 다음 시계를 건다 */
-  after(room) {
-    const g = room.game;
-    if (g.over && room.phase === 'play') {
-      room.phase = 'over';
-      clearTimeout(room.timer);
-      this.lobbyDirty();
+function pushState(room, fx) {
+  room.pushN++;
+  for (const p of room.players) if (!p.bot && p.ws) send(p.ws, Object.assign(stateFor(room, p, fx), { seq: room.pushN }));
+  for (const sp of room.specs) {
+    const v = stateFor(room, null, fx);
+    if (v.g) { v.reset = sp.logN < 0; v.logs = v.reset ? room.game.logs.slice(-150) : room.game.logs.filter(l => l.n >= sp.logN); sp.logN = room.game.logs.length ? room.game.logs[room.game.logs.length - 1].n + 1 : 0; }
+    send(sp.ws, Object.assign(v, { seq: room.pushN }));
+  }
+}
+function broadcast(room, obj) {
+  for (const p of room.players) if (!p.bot) send(p.ws, obj);
+  for (const sp of room.specs) send(sp.ws, obj);
+}
+/** 방 안 알림 — 채팅 칸에 회색으로 */
+function sys(room, text) { broadcast(room, { t: 'chat', sys: true, text }); }
+
+/* ── 열린 방 목록 ── */
+const watchers = new Set();
+let listT = null;
+function listChanged() {
+  if (listT || !watchers.size) return;
+  listT = setTimeout(() => { listT = null; pushList(); }, FAST ? 0 : 300);
+}
+function roomList() {
+  const rs = [];
+  for (const r of rooms.values()) {
+    if (!r.players.some(p => !p.bot && p.connected)) continue;
+    const state = r.phase !== 'lobby' ? 'playing' : r.players.length >= r.cfg.max ? 'full' : 'wait';
+    rs.push({ r, state });
+  }
+  const open = x => (x.state === 'wait' && !x.r.cfg.priv ? 0 : 1);
+  rs.sort((a, b) => open(a) - open(b) || b.r.madeAt - a.r.madeAt);
+  const list = rs.slice(0, 20).map(({ r, state }) => {
+    const host = playerOf(r, r.hostId);
+    const e = { host: host ? host.name : '', n: r.players.length, humans: r.players.filter(p => !p.bot).length, max: r.cfg.max, state, spec: r.cfg.spec, watching: r.specs.length };
+    if (r.cfg.priv) { e.priv = true; return e; }
+    return Object.assign({ code: r.code }, e);
+  });
+  return { t: 'rooms', list, online: onlineCount() };
+}
+let socketsRef = null;
+const onlineCount = () => (socketsRef ? socketsRef() : 0);
+export function countSockets(fn) { socketsRef = fn; }
+function pushList() {
+  if (!watchers.size) return;
+  const text = JSON.stringify(roomList());
+  for (const ws of watchers) {
+    if (ws.readyState !== 1) { watchers.delete(ws); continue; }
+    try { ws.send(text); } catch (_) { watchers.delete(ws); }
+  }
+}
+
+/* ─────────────────────────── 메시지 처리 ─────────────────────────── */
+
+function attach(room, p, ws, { seated = false } = {}) {
+  clearTimeout(p.leaveT);
+  watchers.delete(ws);
+  p.ws = ws; p.connected = true; p.logN = -1;
+  const host = playerOf(room, room.hostId);
+  if (!host || (!host.connected && host !== p)) room.hostId = p.id;
+  ws.roomCode = room.code; ws.playerId = p.id;
+  send(ws, Object.assign({ t: 'welcome', role: 'player', you: p.id, token: p.token, code: room.code }, seated ? { seated: true } : {}));
+  if (room.phase === 'playing') schedule(room);         // 내 차례에 끊겼다 돌아왔으면 대신 두려던 예약을 거둔다
+  pushState(room);
+  listChanged();
+}
+
+function detach(ws) {
+  const room = rooms.get(ws.roomCode);
+  if (room && ws.specId != null) {
+    if (removeSpec(room, ws)) { pushState(room); listChanged(); }
+  } else if (room) {
+    const p = playerOf(room, ws.playerId);
+    if (p && p.ws === ws) {
+      if (room.phase === 'lobby') {
+        removePlayer(room, p.id);
+        if (!room.players.some(x => !x.bot)) dropRoom(room); else pushState(room);
+      } else disconnect(ws);
     }
-    this.schedule(room);
-    this.pushGame(room);
-    g.fx = [];
   }
+  ws.roomCode = null; ws.playerId = null; ws.specId = null;
+}
 
-  schedule(room) {
-    clearTimeout(room.timer);
-    room.timer = null;
-    const g = room.game;
-    if (!g || g.over || !g.req) { room.deadline = 0; return; }
-    const q = g.req;
-    const who = this.auto(room, q.to);
-    const seq = q.seq;
-    const run = fn => () => {
-      room.timer = null;
-      if (!room.game || room.game !== g || !g.req || g.req.seq !== seq) return;
-      try { fn(); } catch (e) { console.error('auto', e); try { g.answer(q.to, { a: q.kind === 'play' ? 'end' : 'take' }); } catch (_) { g.answer(q.to, decide(g, q.to)); } }
-      this.after(room);
-    };
-    if (who) {
-      const wait = this.fast ? 0 : who === 'bot' ? 600 + Math.random() * 900 : 1200;
-      room.deadline = 0;
-      room.timer = setTimeout(run(() => g.answer(q.to, decide(g, q.to))), wait);
+function chatText(room, who, msg, extra) {
+  const text = clean(msg.text, 200);
+  if (!text) return;
+  const now = Date.now();
+  if (now - (who.lastChat || 0) < 400) return;
+  who.lastChat = now;
+  broadcast(room, Object.assign({ t: 'chat', from: who.id, name: who.name, text }, extra || {}));
+}
+
+const REACTS = 6;
+
+export function handle(ws, msg) {
+  if (!msg || typeof msg.t !== 'string') return;
+  if ((msg.t === 'create' || msg.t === 'join' || msg.t === 'resume') && ws.roomCode) detach(ws);
+  switch (msg.t) {
+    case 'rooms': if (!ws.roomCode) { watchers.add(ws); send(ws, roomList()); } return;
+    case 'unwatch': watchers.delete(ws); return;
+    case 'create': {
+      const r = createRoom({ priv: msg.priv === true, spec: msg.spec !== false });
+      const p = addPlayer(r, { name: clean(msg.name, 12) || '총잡이 1' });
+      attach(r, p, ws);
       return;
     }
-    const secs = q.kind === 'play' ? room.opts.turn : room.opts.react;
-    room.deadline = Date.now() + secs * 1000;
-    room.timer = setTimeout(run(() => {
-      const s = this.seatOf(room, q.to);
-      const v = s && this.users.get(s.pid);
-      if (v) { v.afk = true; this.sendU(v, { t: 'err', m: '시간이 다 되어 봇이 대신합니다. 아무 조작이나 하면 돌아옵니다.' }); }
-      g.answer(q.to, q.kind === 'play' ? { a: 'end' } : decide(g, q.to));
-    }), secs * 1000 + 300);
-  }
-
-  pushGame(room, only) {
-    const g = room.game;
-    if (!g) return;
-    const left = room.deadline ? Math.max(0, Math.round((room.deadline - Date.now()) / 1000)) : 0;
-    const info = { phase: room.phase, left, secs: g.req ? (g.req.kind === 'play' ? room.opts.turn : room.opts.react) : 0 };
-    for (const v of only ? [only] : this.members(room)) {
-      if (!v.sock) continue;
-      const s = room.seats.find(x => x.pid === v.pid && !x.gone);
-      const view = g.view(s ? s.id : null);
-      const reset = v.logN == null || v.logN < 0;
-      const logs = reset ? g.logs.slice(-150) : g.logs.filter(l => l.n >= v.logN);
-      v.logN = g.logs.length ? g.logs[g.logs.length - 1].n + 1 : 0;
-      this.sendU(v, {
-        t: 'game', v: view, ...info, me: s ? s.id : null, auto: s ? !!this.auto(room, s.id) : false,
-        ev: only ? [] : g.fx, logs, reset,
-      });
+    case 'join': {
+      const code = clean(msg.code, 8).toUpperCase();
+      const r = rooms.get(code);
+      if (!r) return send(ws, { t: 'err', msg: '그런 방이 없어요. 코드를 확인해 주세요.' });
+      if (r.phase !== 'lobby' || r.players.length >= r.cfg.max) {
+        if (!r.cfg.spec) return send(ws, { t: 'err', msg: (r.phase !== 'lobby' ? '이미 시작한 방이에요.' : '방이 가득 찼어요.') + ' 관전을 허용하지 않는 방이에요.' });
+        if (r.specs.length >= MAX_SPECS) return send(ws, { t: 'err', msg: '관전석이 가득 찼어요.' });
+        addSpec(r, ws, clean(msg.name, 12) || `관전자 ${r.specs.length + 1}`);
+        return;
+      }
+      const p = addPlayer(r, { name: clean(msg.name, 12) || `총잡이 ${r.players.length + 1}` });
+      attach(r, p, ws);
+      sys(r, `${p.name} 님이 들어왔어요.`);
+      return;
+    }
+    case 'resume': {
+      const r = rooms.get(clean(msg.code, 8).toUpperCase());
+      if (!r) return send(ws, { t: 'err', msg: '방이 사라졌어요.', fatal: true });
+      const p = r.players.find(x => x.token === msg.token && !x.left);
+      if (!p) return send(ws, { t: 'err', msg: '자리를 찾을 수 없어요.', fatal: true });
+      if (p.ws && p.ws !== ws) { send(p.ws, { t: 'moved' }); try { p.ws.close(4001, 'moved'); } catch (_) {} }
+      attach(r, p, ws);
+      return;
     }
   }
 
-  /* ───────────── 청소 ───────────── */
+  const room = rooms.get(ws.roomCode);
+  if (!room) return;
+  if (ws.specId != null) return handleSpec(room, ws, msg);
+  const me = playerOf(room, ws.playerId);
+  if (!me || me.bot) return;
+  const isHost = room.hostId === me.id;
+  room.lastActive = Date.now();
 
-  sweep(now = Date.now()) {
-    for (const room of [...this.rooms.values()]) {
-      const live = this.members(room).some(v => v.sock);
-      if (live) { room.empty = 0; continue; }
-      if (!room.empty) room.empty = now;
-      if (now - room.empty > (room.phase === 'play' ? 180_000 : 60_000)) this.dropRoom(room);
+  switch (msg.t) {
+    case 'cfg': {
+      if (!isHost || room.phase !== 'lobby') return;
+      if (TURN_SECS.includes(msg.turn)) room.cfg.turn = msg.turn;
+      if (REACT_SECS.includes(msg.react)) room.cfg.react = msg.react;
+      if (Number.isInteger(msg.max) && msg.max >= MIN_PLAYERS && msg.max <= MAX_PLAYERS && msg.max >= room.players.length) room.cfg.max = msg.max;
+      if (msg.chars === 'random' || msg.chars === 'pick') room.cfg.chars = msg.chars;
+      if (typeof msg.priv === 'boolean') room.cfg.priv = msg.priv;
+      if (typeof msg.spec === 'boolean') room.cfg.spec = msg.spec;
+      pushState(room); listChanged();
+      break;
     }
-    for (const u of [...this.users.values()]) {
-      if (!u.sock && now - u.seen > 10 * 60_000 && !(u.room && this.rooms.has(u.room))) this.users.delete(u.pid);
+    case 'addBot': {
+      if (!isHost || room.phase !== 'lobby') return;
+      if (room.players.length >= room.cfg.max) return send(ws, { t: 'err', msg: '자리가 없어요.' });
+      const used = new Set(room.players.map(p => p.name));
+      addPlayer(room, { name: BOT_NAMES.find(n => !used.has(n)) || `봇 ${room.players.length + 1}`, bot: true });
+      pushState(room); listChanged();
+      break;
     }
+    case 'kick': {
+      if (!isHost || room.phase !== 'lobby') return;
+      const t = playerOf(room, msg.id);
+      if (!t || t.id === room.hostId) return;
+      if (t.ws) { send(t.ws, { t: 'err', msg: '방장이 내보냈어요.', fatal: true }); t.ws.roomCode = null; t.ws.playerId = null; }
+      removePlayer(room, t.id);
+      if (!t.bot) sys(room, `${t.name} 님이 나갔어요.`);
+      pushState(room);
+      break;
+    }
+    case 'host': {                                   // 방장 넘기기
+      if (!isHost) return;
+      const t = playerOf(room, msg.id);
+      if (!t || t.bot || !t.connected) return;
+      room.hostId = t.id;
+      sys(room, `${t.name} 님이 방장이 되었어요.`);
+      pushState(room); listChanged();
+      break;
+    }
+    case 'start': {
+      if (!isHost || room.phase !== 'lobby') return;
+      if (room.players.length < MIN_PLAYERS) return send(ws, { t: 'err', msg: `${MIN_PLAYERS}명은 있어야 시작할 수 있어요. 빈자리에 봇을 앉혀 보세요.` });
+      startGame(room);
+      break;
+    }
+    case 'pick': introPick(room, me, String(msg.c)); break;
+    case 'act': act(room, me, msg.r, msg.seq); break;
+    case 'back': me.afk = false; schedule(room); pushState(room); break;
+
+    case 'chat': chatText(room, me, msg); break;
+    case 'react': {
+      const e = msg.e | 0, now = Date.now();
+      if (e < 0 || e >= REACTS || now - me.lastReact < 700) return;
+      me.lastReact = now;
+      broadcast(room, { t: 'react', from: me.id, e });
+      break;
+    }
+    case 'again': {
+      if (!isHost || room.phase !== 'over') return;
+      clearAll(room);
+      room.phase = 'lobby'; room.game = null; room.intro = null; room.deadline = 0;
+      room.players = room.players.filter(p => !p.left);
+      for (const p of room.players) if (!p.bot && !p.connected) armLeave(room, p);
+      if (!playerOf(room, room.hostId)) pickHost(room);
+      seatSpecs(room);
+      pushState(room); listChanged();
+      break;
+    }
+    case 'leave':
+      removePlayer(room, me.id);
+      ws.roomCode = null; ws.playerId = null;
+      send(ws, { t: 'left' });
+      if (!room.players.some(x => !x.bot && !x.left)) dropRoom(room);
+      else pushState(room);
+      break;
   }
-  busy() { return this.rooms.size > 0 || [...this.users.values()].some(u => u.sock); }
 }
+
+function handleSpec(room, ws, msg) {
+  const sp = specOf(room, ws);
+  if (!sp) return;
+  if (msg.t === 'chat') chatText(room, sp, msg, { spec: true });
+  else if (msg.t === 'leave') {
+    removeSpec(room, ws);
+    ws.roomCode = null; ws.specId = null;
+    send(ws, { t: 'left' });
+    pushState(room); listChanged();
+  }
+}
+
+function armLeave(room, p) {
+  clearTimeout(p.leaveT);
+  p.leaveT = setTimeout(() => {
+    if (p.connected || room.phase !== 'lobby' || rooms.get(room.code) !== room) return;
+    removePlayer(room, p.id);
+    sys(room, `${p.name} 님의 연결이 끊겨 자리를 비웠어요.`);
+    if (!room.players.some(x => !x.bot)) dropRoom(room); else pushState(room);
+  }, LOBBY_GRACE);
+}
+
+export function disconnect(ws, { keepSeat = false } = {}) {
+  watchers.delete(ws);
+  const room = rooms.get(ws.roomCode);
+  if (!room) return;
+  if (ws.specId != null) { if (removeSpec(room, ws)) { pushState(room); listChanged(); } return; }
+  const p = playerOf(room, ws.playerId);
+  if (!p || p.ws !== ws) return;
+  p.connected = false; p.ws = null;
+  room.lastActive = Date.now();
+  listChanged();
+  if (room.hostId === p.id) {
+    clearTimeout(room.timers.host);
+    room.timers.host = setTimeout(() => {
+      const h = playerOf(room, room.hostId);
+      if (h && h.connected) return;
+      const next = room.players.find(x => !x.bot && x.connected);
+      if (next) { room.hostId = next.id; sys(room, `${next.name} 님이 방장이 되었어요.`); pushState(room); }
+    }, LOBBY_GRACE);
+  }
+  if (room.phase === 'lobby') { if (!keepSeat) armLeave(room, p); }
+  else if (room.phase === 'playing') schedule(room);
+  pushState(room);
+}
+
+/** 사람이 다 떠난 방을 치운다. 통신 쪽이 20~30초마다 부른다 */
+export function sweepRooms(now = Date.now()) {
+  for (const room of [...rooms.values()]) {
+    const humans = room.players.filter(p => !p.bot && p.connected).length;
+    const seated = room.phase === 'lobby' && room.players.some(p => !p.bot);
+    if (humans === 0 && !room.specs.length && now - room.lastActive > (seated ? 10 * 60_000 : 90_000)) dropRoom(room);
+  }
+}
+export const busy = () => rooms.size > 0 || watchers.size > 0;
+export const _test = { stateFor, finishIntro, schedule };
