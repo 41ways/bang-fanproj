@@ -5,7 +5,7 @@
  * 판에서는 서버가 보낸 상태를 한 통씩 줄 세워 그린다. 연출(fx)이 딸려 오면 총알이 날아가고
  * "BANG!"이 터지는 것을 다 보여 준 뒤에 다음 상태로 넘어간다 — 서버도 그만큼 봇을 기다리게 한다.
  */
-import { KINDS, CHARS, ROLES, SUITS, RANKS, DECK } from './cards.js';
+import { KINDS, CHARS, ROLES, SUITS, RANKS, DECK, EVENTS } from './cards.js';
 
 const $ = s => document.querySelector(s);
 const $$ = s => Array.from(document.querySelectorAll(s));
@@ -27,6 +27,7 @@ const FX_MS = {
   turn: 1300, shot: 900, hurt: 650, heal: 600, dodge: 750, flip: 1600, boom: 1600, die: 2400,
   jailed: 1300, gatling: 1100, indians: 1100, play: 700, equip: 700, steal: 800, lose: 700,
   store: 1000, take: 550, draw: 450, show: 1100, pass: 900, spend: 500, discard: 450, over: 1500, reshuffle: 800,
+  event: 3000, revive: 1600,
 };
 
 /* 그림을 미리 받아 둔다 — 처음 뒤집힐 때 빈 칸이 보이지 않게 */
@@ -341,6 +342,10 @@ function renderLobby() {
   $('#lWait').textContent = spec ? '관전 중 — 방장이 시작하면 구경할 수 있어요' : '방장이 시작하기를 기다리는 중…';
   for (const [id, v] of [['#segMax', S.cfg.max], ['#segTurn', S.cfg.turn], ['#segReact', S.cfg.react]]) $$(`${id} button`).forEach(b => b.classList.toggle('on', Number(b.dataset.v) === v));
   $$('#segChars button').forEach(b => b.classList.toggle('on', b.dataset.v === S.cfg.chars));
+  $$('#segExp button').forEach(b => b.classList.toggle('on', b.dataset.v === S.cfg.exp));
+  $('#optRevive').hidden = S.cfg.exp === 'none';
+  $('#tRevive').setAttribute('aria-checked', String(!!S.cfg.revive));
+  $('#lRules').textContent = rulesLine(S.cfg);
   $$('#segMax button').forEach(b => { b.disabled = Number(b.dataset.v) < S.players.length; });
   $('#tPriv').setAttribute('aria-checked', String(!!S.cfg.priv));
   $('#tSpec').setAttribute('aria-checked', String(S.cfg.spec !== false));
@@ -365,6 +370,13 @@ for (const [id, key] of [['#segMax', 'max'], ['#segTurn', 'turn'], ['#segReact',
   $$(`${id} button`).forEach(b => b.onclick = () => { send({ t: 'cfg', [key]: Number(b.dataset.v) }); sfx.pop(); });
 }
 $$('#segChars button').forEach(b => b.onclick = () => { send({ t: 'cfg', chars: b.dataset.v }); sfx.pop(); });
+$$('#segExp button').forEach(b => b.onclick = () => { send({ t: 'cfg', exp: b.dataset.v }); sfx.pop(); });
+$('#tRevive').onclick = () => send({ t: 'cfg', revive: !S.cfg.revive });
+const EXP_NAME = { none: '기본판', hn: '하이눈 확장', foc: '한 줌의 카드 확장', both: '하이눈 + 한 줌의 카드', either: '하이눈 · 한 줌의 카드 중 하나' };
+function rulesLine(cfg) {
+  return [EXP_NAME[cfg.exp] + (cfg.exp !== 'none' && cfg.revive ? '(유령 마을 · 죽은 자 포함)' : ''), cfg.chars === 'pick' ? '인물 두 장 중 고르기' : '인물 무작위',
+    cfg.turn ? `내 턴 ${cfg.turn}초` : '시간 무제한', `막기 ${cfg.react}초`].join(' · ');
+}
 $('#tPriv').onclick = () => send({ t: 'cfg', priv: S.cfg.priv !== true });
 $('#tSpec').onclick = () => send({ t: 'cfg', spec: S.cfg.spec === false });
 $('#bBot').onclick = () => { send({ t: 'addBot' }); sfx.pop(); };
@@ -488,7 +500,8 @@ const RING_R = 37, RING_C = 2 * Math.PI * RING_R;
 const ringSVG = `<svg class="ring" viewBox="0 0 80 80"><circle class="fg" cx="40" cy="40" r="${RING_R}" stroke-dasharray="${RING_C}" stroke-dashoffset="${RING_C}"/></svg>`;
 function seatHTML(p) {
   const g = G(), req = g.req;
-  const cls = ['opp', p.id === g.turn && !g.over ? 'turn' : '', req && req.to === p.id && !g.over ? 'thinking' : '', req && req.to === p.id && req.to !== g.turn && !g.over ? 'asked' : '', !p.alive ? 'dead' : '',
+  const aims = aimSet();
+  const cls = ['opp', p.status === 'ghost' ? 'ghost' : '', p.status === 'down' ? 'down' : '', p.id === g.turn && !g.over ? 'turn' : '', req && req.to === p.id && !g.over ? 'thinking' : '', req && req.to === p.id && req.to !== g.turn && !g.over ? 'asked' : '', !p.alive ? 'dead' : '',
     targets().has(p.id) ? 'target' : ''].join(' ');
   const mp = myP();
   const inRange = mp && mp.alive && p.alive && p.dist != null && p.dist <= mp.range;
@@ -496,12 +509,12 @@ function seatHTML(p) {
   return `<div class="${cls}" data-pid="${p.id}">
     <div class="por" data-char="${p.char}"><img src="${CHAR_IMG(p.char)}" alt="">${ringSVG}${roleBadge(p)}</div>
     <div class="o-info">
-      <b class="o-name">${esc(p.name)}${p.bot ? ' <i class="otag">봇</i>' : ''}${pl && !pl.bot && !pl.connected ? ' <i class="otag off">끊김</i>' : ''}</b>
+      <b class="o-name">${p.status === 'ghost' ? '👻 ' : ''}${esc(p.name)}${p.bot ? ' <i class="otag">봇</i>' : ''}${pl && !pl.bot && !pl.connected ? ' <i class="otag off">끊김</i>' : ''}</b>
       <span class="o-char" data-char="${p.char}">${CHARS[p.char].name}${!p.alive && p.role ? ' · ' + ROLES[p.role].name : ''}</span>
       ${hpHTML(p)}
       <span class="o-meta"><span class="hc" title="손에 든 카드">🂠 ${p.hand}</span>${p.dist != null && p.id !== me ? `<span class="ds ${inRange ? 'in' : ''}" title="내가 보는 거리${inRange ? ' — 사거리 안' : ''}">↔ ${p.dist}</span>` : ''}<span class="rg" title="사거리">🎯 ${p.range}</span></span>
     </div>
-    <div class="o-tbl">${p.table.map(c => cardHTML(c, 'mini')).join('')}</div>
+    <div class="o-tbl">${p.table.map(c => cardHTML(c, 'mini' + (aims.has(c.id) ? ' aim' : ''))).join('')}</div>
     <div class="think">생각 중…</div>
   </div>`;
 }
@@ -530,8 +543,22 @@ function layout() {
 }
 addEventListener('resize', () => requestAnimationFrame(layout));
 
+function evCard(k, cls = '') {
+  if (!k) return `<span class="ecard none ${cls}">이벤트 없음</span>`;
+  const E = EVENTS[k];
+  const icon = { hn: '☀', foc: '🃏' }[E.set];
+  return `<span class="ecard ${E.set} ${cls}" data-ev="${k}"><img src="/img/events/${k}.webp" alt="" onerror="this.classList.add('noart');this.nextElementSibling.hidden=false"><span class="ek" hidden>${icon}</span><b>${E.name}</b><small>${esc(E.desc)}</small></span>`;
+}
+function renderEvents() {
+  const g = G(), box = $('#events');
+  box.hidden = !g.events;
+  if (!g.events) return;
+  box.innerHTML = (g.eventNext ? evCard(g.eventNext, 'next').replace('</span>', '</span>') : '') + evCard(g.event) ;
+  if (g.eventLeft) box.firstElementChild.insertAdjacentHTML('beforeend', `<span class="eleft">${g.eventLeft}</span>`);
+}
 function renderCenter() {
   const g = G();
+  renderEvents();
   $('#deckN').textContent = g.deck;
   $('#pile').innerHTML = g.pile ? cardHTML(g.pile) : '<span class="pile-empty">버린 카드</span>';
   const st = $('#store'), r = myReq();
@@ -582,7 +609,7 @@ function renderHand() {
   if (!g.me) { el.innerHTML = ''; return; }
   const ok = eligible();
   const now = new Set(g.me.hand.map(c => c.id));
-  el.innerHTML = g.me.hand.map(c => cardHTML(c, [sel.includes(c.id) ? 'sel' : '', ok ? (ok.has(c.id) ? 'can' : 'dim') : '', prevHand.size && !prevHand.has(c.id) ? 'new' : ''].join(' '))).join('');
+  el.innerHTML = g.me.hand.map(c => cardHTML(c, [g.me.mustPlay === c.id ? 'must' : '', sel.includes(c.id) ? 'sel' : '', ok ? (ok.has(c.id) ? 'can' : 'dim') : '', prevHand.size && !prevHand.has(c.id) ? 'new' : ''].join(' '))).join('');
   prevHand = now;
   el.style.setProperty('--n', g.me.hand.length);
 }
@@ -607,17 +634,31 @@ function playNoTarget(id) {
 function eligible() {
   const r = myReq(), hand = G().me ? G().me.hand : [];
   if (!r) return null;
-  if (r.kind === 'play') return mode === 'sid' ? new Set(hand.map(c => c.id)) : new Set(Object.keys(r.moves).map(Number));
+  if (r.kind === 'play') {
+    if (mode === 'sid') return new Set(hand.map(c => c.id));
+    if (mode === 'snipe') return new Set([sel[0], ...((r.moves[sel[0]] || {}).snipe || [])]);
+    return new Set(Object.keys(r.moves).map(Number));
+  }
+  if (r.kind === 'ranch') return new Set(hand.map(c => c.id));
   if (r.kind === 'discard') return new Set(hand.map(c => c.id));
   if (r.kind === 'react') return new Set(hand.filter(c => r.ok.includes(c.k)).map(c => c.id));
   if (r.kind === 'dying') return mode === 'sid' ? new Set(hand.map(c => c.id)) : new Set(hand.filter(c => c.k === 'beer').map(c => c.id));
   return new Set();
+}
+/** 도탄으로 겨냥할 수 있는 남의 카드 */
+function aimSet() {
+  const r = myReq();
+  if (!r || r.kind !== 'play' || sel.length !== 1 || mode) return new Set();
+  const mv = r.moves[sel[0]];
+  return new Set(mv && mv.rico ? mv.rico.map(x => x[1]) : []);
 }
 /** 지금 누를 수 있는 자리 */
 function targets() {
   const r = myReq(), g = G();
   if (!r) return new Set();
   if (r.kind === 'play' && sel.length === 1 && !mode) { const mv = r.moves[sel[0]]; if (mv && mv.tg) return new Set(mv.tg); }
+  if (r.kind === 'play' && mode === 'snipe' && sel.length === 2) return new Set(r.moves[sel[0]].sniperTg || []);
+  if (r.kind === 'blood') return new Set(r.tg);
   if (r.kind === 'jesse') return new Set(g.players.filter(p => p.alive && p.id !== me && p.hand > 0).map(p => p.id));
   return new Set();
 }
@@ -626,8 +667,17 @@ function clickCard(id) {
   const r = myReq();
   if (!r) { tipFor(id); return; }
   const ok = eligible();
+  if (r.kind === 'play' && mode === 'snipe') {
+    if (!ok.has(id) || id === sel[0]) return;
+    sel = [sel[0], id]; sfx.card();
+    return renderGame();
+  }
+  if (r.kind === 'ranch') {
+    sel = sel.includes(id) ? sel.filter(x => x !== id) : [...sel, id]; sfx.card();
+    return renderGame();
+  }
   if (r.kind === 'play' && !mode) {
-    if (!ok.has(id)) { toast(whyNot(id)); return; }
+    if (!ok.has(id)) { toast((r.why && r.why[id]) || whyNot(id)); return; }
     sfx.card();
     if (sel[0] === id) { if (!r.moves[id].tg) return playNoTarget(id); sel = []; return renderGame(); }
     sel = [id];
@@ -661,6 +711,11 @@ $('#opps').addEventListener('click', e => {
   const pid = Number(el.dataset.pid), r = myReq();
   if (!r) return;
   if (r.kind === 'jesse') { if (targets().has(pid)) act({ a: 'from', t: pid }); return; }
+  if (r.kind === 'blood') { if (targets().has(pid)) act({ a: 'give', t: pid }); return; }
+  if (r.kind === 'play' && mode === 'snipe') { if (sel.length === 2 && targets().has(pid)) act({ a: 'play', c: sel[0], c2: sel[1], t: pid }); else toast(sel.length < 2 ? '함께 낼 뱅!을 한 장 더 고르세요' : '사거리 밖이에요'); return; }
+  // 도탄 — 남의 앞에 놓인 카드를 눌렀다
+  const aimed = e.target.closest('.o-tbl .card.aim');
+  if (aimed && r.kind === 'play' && sel.length === 1) { act({ a: 'play', c: sel[0], t: pid, tc: Number(aimed.dataset.cid) }); return; }
   if (r.kind !== 'play' || sel.length !== 1 || mode) return;
   const c = sel[0], mv = r.moves[c];
   if (!mv || !mv.tg) return;
@@ -697,7 +752,7 @@ function act(r) {
 }
 
 /* 할 일 막대 */
-const WHY = { bang: '뱅!', gatling: '기관총', indians: '인디언!', duel: '결투' };
+const WHY = { bang: '뱅!', gatling: '기관총', indians: '인디언!', duel: '결투', sniper: '저격', ricochet: '도탄', roulette: '러시안 룰렛', fistful: '한 줌의 카드' };
 function renderAct() {
   const g = G(), r = g.req, rm = myReq();
   const box = $('#act'), tx = $('#actText'), bt = $('#actBtns');
@@ -716,9 +771,11 @@ function renderAct() {
   } else if (!rm) {
     if (r.to === me) text = '…';
     else {
-      const doing = { play: '카드를 내는 중', discard: '카드를 버리는 중', react: '막을지 고민하는 중', dying: '맥주를 찾는 중', store: '잡화점에서 고르는 중', jesse: '첫 장을 어디서 가져올지 고르는 중', pedro: '첫 장을 어디서 가져올지 고르는 중', kit: '카드를 고르는 중', lucky: '뽑기! 두 장 중 고르는 중' }[r.kind];
+      const doing = { play: '카드를 내는 중', discard: '카드를 버리는 중', react: '막을지 고민하는 중', dying: '맥주를 찾는 중', store: '잡화점에서 고르는 중', jesse: '첫 장을 어디서 가져올지 고르는 중', pedro: '첫 장을 어디서 가져올지 고르는 중', kit: '카드를 고르는 중', lucky: '뽑기! 두 장 중 고르는 중', daltons: '버릴 파란 카드를 고르는 중', blood: '생명을 나눠 줄지 고민하는 중', liquor: '독한 술을 마실지 고민하는 중', peyote: '빨강일지 검정일지 맞히는 중', ranch: '바꿀 카드를 고르는 중' }[r.kind];
       text = `${esc(nameOf(r.to))} 님이 ${doing}…`;
       if (r.kind === 'react' && r.from != null) text = `${esc(nameOf(r.from))} 님의 ${WHY[r.why]} — ${esc(nameOf(r.to))} 님이 ${r.why === 'duel' || r.why === 'indians' ? '뱅!을 낼지' : '막을지'} 고민하는 중…`;
+      if (r.kind === 'react' && r.why === 'roulette') text = `러시안 룰렛 — ${esc(nameOf(r.to))} 님 차례… 빗나감!을 낼까?`;
+      if (r.kind === 'react' && r.why === 'fistful') text = `한 줌의 카드 — ${esc(nameOf(r.to))} 님에게 뱅!이 날아온다`;
     }
     if (isSpec()) text += '<small>구경하는 중이에요</small>';
     else if (p && !p.alive) text += '<small>쓰러졌어요 — 끝까지 지켜볼 수 있어요</small>';
@@ -731,14 +788,21 @@ function renderAct() {
           B('취소', () => { resetSel(); renderGame(); }, 'dark');
           break;
         }
+        if (mode === 'snipe') {
+          text = sel.length < 2 ? '<b>저격수</b> — 함께 낼 뱅!을 한 장 더 고르세요' : '<b>저격수</b> — 빛나는 사람을 눌러 쏘세요 (빗나감! 2장이 있어야 막음)';
+          B('취소', () => { resetSel(); renderGame(); }, 'dark');
+          break;
+        }
         const c = sel.length === 1 && g.me.hand.find(x => x.id === sel[0]);
         if (c) {
           const mv = rm.moves[c.id];
-          text = mv && mv.tg ? `<b>${KINDS[c.k].name}</b> — 빛나는 사람을 눌러 대상을 고르세요<small>${esc(KINDS[c.k].desc)}</small>` : `<b>${KINDS[c.k].name}</b> — 한 번 더 누르거나 "사용하기"<small>${esc(KINDS[c.k].desc)}</small>`;
+          if (mv && mv.snipe) B('🎯 저격수: 뱅! 두 장', () => { mode = 'snipe'; renderGame(); }, '');
+          text = mv && mv.tg ? `<b>${KINDS[c.k].name}</b> — 빛나는 사람을 눌러 대상을 고르세요${mv.rico && mv.rico.length ? ' · 도탄: 남의 앞에 놓인 카드를 눌러도 돼요' : ''}<small>${esc(KINDS[c.k].desc)}</small>` : `<b>${KINDS[c.k].name}</b> — 한 번 더 누르거나 "사용하기"<small>${esc(KINDS[c.k].desc)}</small>`;
           if (!(mv && mv.tg)) B('사용하기', () => playNoTarget(c.id), 'red');
           B('취소', () => { resetSel(); renderGame(); }, 'dark');
         } else {
-          text = `<b>당신의 차례</b> — 카드를 내거나 턴을 끝내세요<small>빛나는 카드를 누르면 고르고, 한 번 더 누르면 씁니다 · ${p.char === 'willy' || p.table.some(t => t.k === 'volcanic') ? '뱅! 제한 없음' : g.bangs ? '이번 턴에 뱅!을 이미 쐈어요' : '뱅!은 한 턴에 한 장'}</small>`;
+          const lim = g.bangLimit;
+          text = `<b>당신의 차례</b> — 카드를 내거나 턴을 끝내세요<small>빛나는 카드를 누르면 고르고, 한 번 더 누르면 씁니다 · ${lim >= 99 ? '뱅! 제한 없음' : lim === 0 ? '설교 — 뱅!을 쓸 수 없어요' : g.bangs >= lim ? '이번 턴 뱅!을 다 썼어요' : `뱅!은 한 턴에 ${lim}장`}${g.me.mustPlay != null ? ' · <b>서부의 법 — 주황빛 카드를 꼭 내야 해요</b>' : ''}</small>`;
           if (p.char === 'sid' && p.hp < p.max && g.me.hand.length >= 2) B('시드: 2장 버리고 +1', () => { mode = 'sid'; sel = []; renderGame(); }, '');
         }
         B('턴 끝내기', () => act({ a: 'end' }), c ? '' : 'red');
@@ -752,16 +816,19 @@ function renderAct() {
       case 'react': {
         const from = esc(nameOf(rm.from));
         const elig = g.me.hand.filter(c => rm.ok.includes(c.k));
-        if (rm.why === 'bang' || rm.why === 'gatling') text = `<b>${from} 님의 ${WHY[rm.why]}${rm.why === 'gatling' ? '!' : ''}</b> ${rm.need > 1 ? `빗나감! ${rm.need}장이 있어야 막을 수 있어요` : '빗나감!으로 막을까요?'}`;
+        if (rm.why === 'bang' || rm.why === 'gatling' || rm.why === 'sniper') text = `<b>${from} 님의 ${WHY[rm.why]}${rm.why === 'gatling' ? '!' : ''}</b> ${rm.need > 1 ? `빗나감! ${rm.need}장이 있어야 막을 수 있어요` : '빗나감!으로 막을까요?'}`;
+        else if (rm.why === 'ricochet') text = `<b>${from} 님의 도탄!</b> 내 ${rm.tc ? KINDS[rm.tc.k].name : '카드'}을(를) 지키려면 빗나감!을 내세요`;
+        else if (rm.why === 'roulette') text = `<b>러시안 룰렛!</b> 빗나감!을 내지 못하면 생명 2를 잃고 룰렛이 멈춰요`;
+        else if (rm.why === 'fistful') text = `<b>한 줌의 카드</b> — 뱅!이 날아옵니다${rm.left ? ` (이 뒤로 ${rm.left}발 더)` : ' (마지막 한 발)'}`;
         else if (rm.why === 'indians') text = `<b>${from} 님의 인디언!</b> 뱅!을 1장 버리거나 생명 1을 잃어요`;
         else text = `<b>${from} 님과 결투!</b> 뱅!을 1장 버리면 상대 차례, 못 버리면 생명 1을 잃어요`;
         if (rm.barrel) B(p.char === 'jourdonnais' && !p.table.some(t => t.k === 'barrel') ? '🛢 능력: 술통 뽑기' : '🛢 술통 쓰기', () => act({ a: 'barrel' }), 'red');
-        if (elig.length) B(rm.why === 'bang' || rm.why === 'gatling' ? (rm.need > 1 ? `빗나감! 내기 (${Math.min(elig.length, rm.need)}장)` : `${KINDS[rm.ok[0]].name} 내기`) : `${KINDS[rm.ok.find(k => elig.some(c => c.k === k)) || rm.ok[0]].name} 버리기`, () => {
+        if (elig.length) B(rm.why !== 'duel' && rm.why !== 'indians' ? (rm.need > 1 ? `빗나감! 내기 (${Math.min(elig.length, rm.need)}장)` : `${KINDS[rm.ok[0]].name} 내기`) : `${KINDS[rm.ok.find(k => elig.some(c => c.k === k)) || rm.ok[0]].name} 버리기`, () => {
           let cs = sel.filter(id => elig.some(c => c.id === id));
           for (const c of [...elig].sort((a, b) => (a.k === rm.ok[0] ? -1 : 1) - (b.k === rm.ok[0] ? -1 : 1))) { if (cs.length >= rm.need) break; if (!cs.includes(c.id)) cs.push(c.id); }
           act({ a: 'cards', cs: cs.slice(0, rm.need) });
         }, rm.barrel ? '' : 'red');
-        B(rm.why === 'duel' ? '포기 (생명 −1)' : '맞기 (생명 −1)', () => act({ a: 'take' }), 'dark');
+        B(rm.why === 'duel' ? '포기 (생명 −1)' : rm.why === 'roulette' ? '못 낸다 (생명 −2)' : rm.why === 'ricochet' ? '포기 (카드를 잃음)' : '맞기 (생명 −1)', () => act({ a: 'take' }), 'dark');
         break;
       }
       case 'dying': {
@@ -796,6 +863,29 @@ function renderAct() {
         text = `<b>럭키 듀크</b> — ${rm.what} 뽑기! 두 장 중 쓸 카드를 고르세요`;
         setTimeout(() => luckyPop(rm), 0);
         break;
+      case 'daltons':
+        text = '<b>달튼 형제</b> — 내 앞의 파란 카드 중 1장을 버려야 해요';
+        setTimeout(() => daltonsPop(rm), 0);
+        break;
+      case 'blood':
+        text = '<b>피를 나눈 형제</b> — 생명 1을 잃고 빛나는 사람에게 1을 줄 수 있어요';
+        B('건너뛰기', () => act({ a: 'skip' }), 'dark');
+        break;
+      case 'liquor':
+        text = '<b>독한 술</b> — 이번 뽑기를 건너뛰고 생명 1을 되찾을까요?';
+        B('🥃 뽑지 않고 생명 +1', () => act({ a: 'heal' }), 'red');
+        B('평소대로 뽑기', () => act({ a: 'draw' }), '');
+        break;
+      case 'peyote':
+        text = '<b>페요테</b> — 더미 맨 위 카드는 빨강일까 검정일까? 맞히면 갖고 또 맞혀요';
+        B('🔴 빨강 (♥ ♦)', () => act({ a: 'red' }), 'red');
+        B('⚫ 검정 (♠ ♣)', () => act({ a: 'black' }), 'dark');
+        break;
+      case 'ranch':
+        text = `<b>목장</b> — 바꿀 카드를 고르세요 (${sel.length}장) — 그만큼 다시 뽑아요`;
+        B(`바꾸기 (${sel.length}장)`, () => act({ a: 'swap', cs: sel }), 'red', !sel.length);
+        B('그대로', () => act({ a: 'skip' }), 'dark');
+        break;
     }
   }
   tx.innerHTML = text;
@@ -816,6 +906,12 @@ function luckyPop(r) {
   if (!q || q.kind !== 'lucky' || !$('#pop').hidden) return;
   const hint = { '술통': '♥가 나오면 빗나감!', '감옥': '♥가 나오면 풀려나요', '다이너마이트': '♠2~9가 나오면 터져요' }[r.what] || '';
   openPop(`<p class="pop-title">럭키 듀크 — ${esc(r.what)} 뽑기!</p><p class="pop-sub">두 장 중 하나를 고르세요 · ${hint}</p><div class="sp-row">${r.cards.map(c => `<button class="sp-opt" data-c="${c.id}">${cardHTML(c)}</button>`).join('')}</div>`, true);
+  $$('#popBox [data-c]').forEach(b => b.onclick = () => { closePop(); act({ a: 'pick', c: Number(b.dataset.c) }); });
+}
+function daltonsPop(r) {
+  const q = myReq();
+  if (!q || q.kind !== 'daltons' || !$('#pop').hidden) return;
+  openPop(`<p class="pop-title">달튼 형제</p><p class="pop-sub">내 앞의 파란 카드 중 버릴 1장을 고르세요</p><div class="sp-row">${r.cards.map(c => `<button class="sp-opt" data-c="${c.id}">${cardHTML(c)}</button>`).join('')}</div>`, true);
   $$('#popBox [data-c]').forEach(b => b.onclick = () => { closePop(); act({ a: 'pick', c: Number(b.dataset.c) }); });
 }
 function kitPop(r) {
@@ -920,12 +1016,22 @@ async function playFx(list) {
       case 'show': fxEl('word', `두 번째 장 ${KINDS[DECK[e.c].k].name} ${RANKS[DECK[e.c].r]}${SUITS[DECK[e.c].s]}`, anchor(e.id), 1100); break;
       case 'pass': flyCard(DECK[e.c], e.from, e.to); fxEl('word', '다이너마이트가 넘어간다', anchor(e.to), 900); break;
       case 'over': sfx.win(); break;
+      case 'event': showEvent(e.k); break;
+      case 'revive': fxEl('word', e.ghost ? '👻 유령으로 돌아왔다!' : '⚰ 다시 일어났다!', anchor(e.id), 1500); break;
       case 'reshuffle': toast('버린 카드를 섞어 새 더미를 만들었어요'); break;
     }
     await wait(ms);
   }
 }
 
+function showEvent(k) {
+  const d = document.createElement('div');
+  d.className = 'ev-big';
+  d.innerHTML = `${evCard(k)}<p>새 이벤트!</p>`;
+  $('#table').appendChild(d);
+  sfx.turn();
+  setTimeout(() => d.remove(), FX_MS.event - 200);
+}
 function showGate(ms) {
   gateShown = true;
   const g = G(), sh = g.players.find(p => p.role === 'sheriff');
@@ -1021,9 +1127,14 @@ document.addEventListener('mouseover', e => {
   if (matchMedia('(hover: none)').matches) return;
   const c = e.target.closest('.card[data-cid]');
   const ch = !c && e.target.closest('[data-char]');
+  const evc = !c && !ch && e.target.closest('.ecard[data-ev]');
   clearTimeout(tipT);
-  if ((!c || c.closest('#tip, .fly')) && !ch) { hideTip(); return; }
-  tipT = setTimeout(() => { if (!tipAt) return; tip.innerHTML = c ? tipCard(DECK[Number(c.dataset.cid)]) : tipChar(ch.dataset.char); tip.hidden = false; placeTip(tipAt.x, tipAt.y); }, tip.hidden ? 420 : 60);
+  if ((!c || c.closest('#tip, .fly')) && !ch && !evc) { hideTip(); return; }
+  tipT = setTimeout(() => {
+    if (!tipAt) return;
+    tip.innerHTML = c ? tipCard(DECK[Number(c.dataset.cid)]) : ch ? tipChar(ch.dataset.char) : `<h4>${EVENTS[evc.dataset.ev].name} <small>${EVENTS[evc.dataset.ev].set === 'hn' ? '하이눈' : '한 줌의 카드'}${evc.classList.contains('next') ? ' · 다음 이벤트' : ''}</small></h4><p>${esc(EVENTS[evc.dataset.ev].desc)}</p>`;
+    tip.hidden = false; placeTip(tipAt.x, tipAt.y);
+  }, tip.hidden ? 420 : 60);
 });
 document.addEventListener('mousemove', e => { tipAt = { x: e.clientX, y: e.clientY }; if (!tip.hidden) placeTip(e.clientX, e.clientY); });
 document.addEventListener('pointerdown', () => { clearTimeout(tipT); hideTip(); });
@@ -1046,6 +1157,11 @@ const HELP = {
     <h4>이기는 조건</h4>
     <p>보안관이 쓰러지면 무법자 승리(단, 마지막에 배신자 혼자 남았다면 배신자 승리). 무법자와 배신자가 모두 쓰러지면 보안관 편 승리.</p>`,
   cards: () => `<div class="help-cards">${Object.keys(KINDS).map(k => `<div class="hcard">${cardHTML(DECK.find(c => c.k === k))}<p><b>${KINDS[k].name}</b>${KINDS[k].blue ? ' <small>파란 카드</small>' : ''}<br>${esc(KINDS[k].desc)}</p></div>`).join('')}</div>`,
+  exp: () => `<p class="lead">BGA 의 확장 두 가지 — 방장이 대기실에서 고른다.</p>
+    <p>이벤트 카드는 <b>보안관의 두 번째 턴부터</b> 보안관 차례마다 한 장씩 뒤집히고, 한 바퀴 동안 모두에게 걸린다. 가운데 흐리게 보이는 카드가 다음 이벤트. 마지막 카드(하이눈 / 한 줌의 카드)는 끝까지 남는다. 둘 다 쓰면 12장 + 마지막 1장.</p>
+    <p><b>부활 카드</b>(유령 마을 · 죽은 자)를 넣으면, 그 카드가 남아 있는 동안 쓰러진 사람이 다시 돌아올 수 있다.</p>
+    <h4>☀ 하이눈</h4><div class="help-ev">${Object.keys(EVENTS).filter(k => EVENTS[k].set === 'hn').map(k => `<div><b>${EVENTS[k].name}</b>${EVENTS[k].last ? ' (마지막)' : ''} — ${esc(EVENTS[k].desc)}</div>`).join('')}</div>
+    <h4>🃏 한 줌의 카드</h4><div class="help-ev">${Object.keys(EVENTS).filter(k => EVENTS[k].set === 'foc').map(k => `<div><b>${EVENTS[k].name}</b>${EVENTS[k].last ? ' (마지막)' : ''} — ${esc(EVENTS[k].desc)}</div>`).join('')}</div>`,
   chars: () => `<div class="help-chars">${Object.keys(CHARS).map(k => `<div class="hch"><img src="${CHAR_IMG(k)}" alt=""><p><b>${CHARS[k].name}</b> <small>생명 ${CHARS[k].hp}</small><br>${esc(CHARS[k].desc)}</p></div>`).join('')}</div>`,
   ui: () => `<ul class="tips">
     <li>시작하면 역할 카드를 받고, <b>인물 카드 두 장 중 하나</b>를 고른다. 모두 고르면 보안관부터 시작한다.</li>

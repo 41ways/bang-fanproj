@@ -102,22 +102,30 @@ const empty = g => { for (const p of g.players) { g.pile.push(...p.hand); p.hand
   ok(g.P('p0').hand.length === 0 && g.P('p0').table.length === 0, '보안관 벌칙');
 }
 
-/* 다이너마이트: 스페이드 2~9면 3 피해 */
+/* 다이너마이트: 스페이드 2~9면 3 피해, 아니면 왼쪽으로 넘어간다 */
 {
   const g = setup(['bart', 'sid', 'pedro', 'kit']);
   empty(g);
-  table(g, 'p3', [find('dynamite')]);
-  top(g, [find('missed', 'S', 5)]);            // 스페이드 5 → 펑
-  hand(g, 'p0', []);
-  g.answer('p0', { a: 'end' });
-  g.answer('p1', { a: 'end' });
-  if (g.req.kind === 'discard') g.answer(g.req.to, { a: 'discard', cs: g.P(g.req.to).hand.slice(0, g.req.n) });
-  if (g.req.kind === 'pedro') g.answer('p2', { a: 'deck' });
-  g.answer('p2', { a: 'end' });
-  if (g.req.kind === 'discard') g.answer(g.req.to, { a: 'discard', cs: g.P(g.req.to).hand.slice(0, g.req.n) });
-  // p3(킷 칼슨) 턴: 다이너마이트가 먼저
-  ok(g.P('p3').hp === 1, '다이너마이트 3 피해 → ' + g.P('p3').hp);
-  ok(!g.P('p3').table.length, '터진 다이너마이트는 버림');
+  table(g, 'p0', [find('dynamite')]);
+  // 보안관의 첫 턴은 이미 시작됐으니, 한 바퀴 돌려 보안관 차례가 다시 올 때 뽑기!
+  const endTurn = id => { while (g.req && g.req.to === id && g.req.kind !== 'play') g.answer(id, g.req.kind === 'kit' ? { a: 'back', c: g.req.cards[0] } : g.req.kind === 'discard' ? { a: 'discard', cs: g.P(id).hand.slice(0, g.req.n) } : { a: 'deck' }); g.answer(id, { a: 'end' }); if (g.req && g.req.kind === 'discard') g.answer(id, { a: 'discard', cs: g.P(id).hand.slice(0, g.req.n) }); };
+  endTurn('p0'); endTurn('p1'); endTurn('p2');
+  top(g, [find('missed', 'S', 5)]);            // p3(킷) 다음 → p0 차례에 뽑힐 카드 — 킷이 3장 보고 고르므로 아래에 둔다
+  while (g.req.to === 'p3' && g.req.kind !== 'play') g.answer('p3', { a: 'back', c: g.req.cards[0] });
+  top(g, [find('missed', 'S', 5)]);
+  g.answer('p3', { a: 'end' }); if (g.req && g.req.kind === 'discard') g.answer('p3', { a: 'discard', cs: g.P('p3').hand.slice(0, g.req.n) });
+  ok(g.P('p0').hp === 2, '다이너마이트 ♠5 → 3 피해 (5−3) ' + g.P('p0').hp);
+  ok(!g.P('p0').table.length, '터진 다이너마이트는 버림');
+}
+{
+  const g = setup(['bart', 'sid', 'pedro', 'willy']);
+  empty(g);
+  table(g, 'p0', [find('dynamite')]);
+  const endTurn = id => { while (g.req && g.req.to === id && g.req.kind !== 'play') g.answer(id, { a: 'deck' }); g.answer(id, { a: 'end' }); if (g.req && g.req.kind === 'discard') g.answer(id, { a: 'discard', cs: g.P(id).hand.slice(0, g.req.n) }); };
+  endTurn('p0'); endTurn('p1'); endTurn('p2');
+  top(g, [find('beer', 'H', 6)]);              // ♥ → 안 터지고 넘어간다
+  endTurn('p3');
+  ok(g.P('p0').hp === 5 && g.P('p1').table.some(c => DECK[c].k === 'dynamite'), '안전한 카드면 왼쪽으로 넘어감');
 }
 
 /* 감옥: 하트면 풀려나 턴, 아니면 거름 · 보안관에게는 못 놓음 */

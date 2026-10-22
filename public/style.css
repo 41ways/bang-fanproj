@@ -545,3 +545,29 @@ body[data-screen="game"] .chat { bottom: auto; top: 62px; }
   .roles-strip { grid-template-columns: repeat(2, 1fr); }
 }
 body.spec #bEmo { display: none; }
+
+/* ── 확장: 이벤트 카드 ── */
+.opt-d { font-size: 12.5px; color: var(--ink-2); }
+.rules-line { margin: 6px 0 0; font-size: 13.5px; color: var(--ink-2); text-align: center; }
+.events { display: flex; gap: 8px; align-items: center; }
+.ecard { position: relative; width: 92px; height: 128px; border-radius: 8px; background: #f6e7c4 url(/img/paper.jpg) center/180px; color: var(--ink); box-shadow: 0 0 0 3px #7a2b18, 0 0 0 5px #e9d3a3, 0 6px 14px rgba(0, 0, 0, .55); display: flex; flex-direction: column; align-items: center; overflow: hidden; text-align: center; cursor: help; flex: none; }
+.ecard.foc { box-shadow: 0 0 0 3px #3b4f2a, 0 0 0 5px #e9d3a3, 0 6px 14px rgba(0, 0, 0, .55); }
+.ecard img { width: 100%; height: 58%; object-fit: cover; border-bottom: 1px solid rgba(40, 24, 10, .4); }
+.ecard img.noart { display: none; }
+.ecard .ek { font-size: 26px; margin-top: 10px; }
+.ecard b { margin-top: 4px; font-size: 13px; line-height: 1.15; padding: 0 4px; }
+.ecard small { font-size: 9px; line-height: 1.2; padding: 2px 6px 0; color: var(--ink-2); overflow: hidden; }
+.ecard.next { opacity: .5; transform: scale(.82); filter: saturate(.6); }
+.ecard.none { background: rgba(20, 12, 6, .5); box-shadow: 0 0 0 2px rgba(255, 240, 210, .3); color: rgba(255, 240, 210, .6); justify-content: center; font-size: 12px; }
+.ecard .eleft { position: absolute; top: 3px; right: 4px; font-size: 10px; background: rgba(0, 0, 0, .55); color: #fff; border-radius: 6px; padding: 0 5px; }
+.ev-big { position: absolute; left: 50%; top: 44%; transform: translate(-50%, -50%); z-index: 18; text-align: center; pointer-events: none; animation: popIn .5s cubic-bezier(.2, 1.4, .4, 1); }
+.ev-big .ecard { width: 200px; height: 280px; margin: 0 auto 8px; transform: none; opacity: 1; }
+.ev-big .ecard b { font-size: 24px; } .ev-big .ecard small { font-size: 14px; padding: 6px 12px 0; } .ev-big .ecard .ek { font-size: 60px; margin-top: 30px; }
+.ev-big p { margin: 0; font: 700 20px var(--kr); color: var(--gold-hi); text-shadow: 0 2px 6px #000; }
+.opp.ghost { filter: saturate(.3) brightness(1.05); opacity: .85; box-shadow: 0 0 0 4px #9fc3d6, 0 0 24px rgba(160, 210, 240, .6); }
+.opp.down .o-char::after { content: " · 돌아올 수도"; }
+.o-tbl .card.aim { cursor: crosshair; box-shadow: 0 0 0 3px var(--red-hi), 0 0 14px rgba(255, 90, 50, .9); animation: target 1s infinite; }
+.hand .card.must { box-shadow: 0 0 0 4px #ff9f3a, 0 0 22px rgba(255, 160, 60, .9), 0 6px 12px rgba(0, 0, 0, .5); }
+.help-ev { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px; }
+.help-ev div { font-size: 13.5px; line-height: 1.45; } .help-ev b { color: var(--red); }
+@media (max-width: 760px) { .ecard { width: 54px; height: 76px; } .ecard b { font-size: 9px; } .ecard small { display: none; } .ecard .ek { font-size: 16px; margin-top: 4px; } }

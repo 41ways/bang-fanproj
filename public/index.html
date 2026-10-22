@@ -82,8 +82,11 @@
       </header>
       <p class="spec-note" id="lSpecNote" hidden>관전 중 — 자리가 나면 다음 판부터 같이 해요</p>
       <ul id="lSeats" class="seats"></ul>
+      <p class="rules-line" id="lRules"></p>
       <div id="lHostBox" class="host-box">
         <div class="opt"><span class="opt-t">인물</span><div class="seg" id="segChars"><button data-v="random">무작위로</button><button data-v="pick">두 장 중 고르기</button></div></div>
+        <div class="opt"><span class="opt-t">확장</span><div class="seg" id="segExp"><button data-v="none">기본판</button><button data-v="hn">하이눈</button><button data-v="foc">한 줌의 카드</button><button data-v="both">둘 다</button><button data-v="either">둘 중 하나</button></div></div>
+        <div class="opt" id="optRevive"><span class="opt-t">부활 카드</span><button id="tRevive" class="toggle" role="switch" aria-checked="false"><span></span></button><span class="opt-d">유령 마을 · 죽은 자 — 쓰러진 사람이 돌아올 수 있어요</span></div>
         <div class="opt"><span class="opt-t">최대 인원</span><div class="seg" id="segMax"><button data-v="4">4</button><button data-v="5">5</button><button data-v="6">6</button><button data-v="7">7</button></div></div>
         <div class="opt"><span class="opt-t">내 턴 시간</span><div class="seg" id="segTurn"><button data-v="30">30초</button><button data-v="60">60초</button><button data-v="90">90초</button><button data-v="0">무제한</button></div></div>
         <div class="opt"><span class="opt-t">막기·고르기</span><div class="seg" id="segReact"><button data-v="15">15초</button><button data-v="20">20초</button><button data-v="30">30초</button></div></div>
@@ -128,6 +131,7 @@
   <div class="table" id="table">
     <div class="opps" id="opps"></div>
     <div class="center" id="center">
+      <div class="events" id="events" hidden></div>
       <div class="deck" id="deck"><img src="/img/cards/back.webp" alt=""><b id="deckN"></b></div>
       <div class="pile" id="pile"></div>
       <div class="store" id="store" hidden></div>
@@ -182,7 +186,7 @@
   <div class="sheet">
     <header class="sheet-head"><h2>뱅! 규칙</h2><button class="x" id="bHelpX" aria-label="닫기">✕</button></header>
     <nav class="tabs" id="helpTabs">
-      <button class="on" data-tab="basic">기본</button><button data-tab="cards">카드</button><button data-tab="chars">인물</button><button data-tab="ui">조작</button>
+      <button class="on" data-tab="basic">기본</button><button data-tab="cards">카드</button><button data-tab="chars">인물</button><button data-tab="exp">확장</button><button data-tab="ui">조작</button>
     </nav>
     <div class="sheet-body" id="helpBody"></div>
   </div>

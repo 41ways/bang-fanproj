@@ -114,3 +114,36 @@ export const MAX_PLAYERS = 7;
 
 export const cardName = c => (KINDS[c.k] ? KINDS[c.k].name : '?');
 export const cardTag = c => SUITS[c.s] + RANKS[c.r];
+
+/** 이벤트 카드 — 하이눈(hn) · 한 줌의 카드(foc). last 는 덱 맨 아래에 남는 마지막 카드, revive 는 유령 마을 · 죽은 자
+ *  설명은 BGA 문구를 옮긴 것 */
+export const EVENTS = {
+  blessing:  { set: 'hn', name: '축복', desc: '모든 카드의 무늬가 ♥가 된다("뽑기!" 판정).' },
+  curse:     { set: 'hn', name: '저주', desc: '모든 카드의 무늬가 ♠가 된다("뽑기!" 판정).' },
+  daltons:   { set: 'hn', name: '달튼 형제', desc: '나오는 순간, 앞에 파란 카드가 있는 사람은 모두 그중 1장을 버린다.' },
+  doctor:    { set: 'hn', name: '의사', desc: '나오는 순간, 생명이 가장 적은 사람이 생명 1을 되찾는다.' },
+  ghosttown: { set: 'hn', name: '유령 마을', revive: true, desc: '쓰러진 사람이 자기 차례에 유령으로 돌아온다. 3장을 뽑고 죽지 않으며, 턴이 끝나면 다시 쓰러진다.' },
+  goldrush:  { set: 'hn', name: '골드 러시', desc: '이번 바퀴는 보안관부터 반시계 방향으로 돈다. 카드 효과는 그대로 시계 방향.' },
+  hangover:  { set: 'hn', name: '숙취', desc: '모든 인물이 능력을 잃는다.' },
+  reverend:  { set: 'hn', name: '목사', desc: '아무도 맥주를 낼 수 없다.' },
+  sermon:    { set: 'hn', name: '설교', desc: '자기 차례에는 뱅!을 쓸 수 없다.' },
+  shootout:  { set: 'hn', name: '총격전', desc: '자기 차례에 뱅!을 두 장까지 쏠 수 있다.' },
+  thirst:    { set: 'hn', name: '갈증', desc: '1단계에 첫 장만 뽑는다(인물 능력 없이).' },
+  train:     { set: 'hn', name: '열차 도착', desc: '1단계 끝에 1장을 더 뽑는다.' },
+  highnoon:  { set: 'hn', name: '하이눈', last: true, desc: '모두 자기 차례를 시작할 때 생명 1을 잃는다.' },
+  mine:      { set: 'foc', name: '버려진 광산', desc: '1단계에 버린 카드에서 뽑고(모자라면 더미에서), 3단계에 버리는 카드는 더미 위에 엎는다.' },
+  ambush:    { set: 'foc', name: '매복', desc: '모든 사람 사이의 거리가 1이다. 앞에 놓인 카드로만 달라진다.' },
+  bloodbros: { set: 'foc', name: '피를 나눈 형제', desc: '차례를 시작할 때 생명 1(마지막 하나는 빼고)을 잃고 다른 사람에게 1을 줄 수 있다.' },
+  deadman:   { set: 'foc', name: '죽은 자', revive: true, desc: '처음 쓰러진 사람이 자기 차례에 생명 2 · 카드 2장으로 돌아온다.' },
+  liquor:    { set: 'foc', name: '독한 술', desc: '1단계 뽑기를 건너뛰고 생명 1을 되찾을 수 있다.' },
+  judge:     { set: 'foc', name: '판사', desc: '아무도 앞에 놓는 카드(파란 카드)를 낼 수 없다.' },
+  lasso:     { set: 'foc', name: '올가미', desc: '앞에 놓인 카드는 효과가 없다. 감옥은 뽑기!만 하고 효과가 없다.' },
+  lawwest:   { set: 'foc', name: '서부의 법', desc: '1단계에 뽑은 두 번째 장을 보여 주고, 낼 수 있으면 2단계에 꼭 낸다.' },
+  peyote:    { set: 'foc', name: '페요테', desc: '1단계 대신 더미 맨 위가 빨강인지 검정인지 맞힌다. 맞히면 갖고 또 맞히고, 틀리면 끝.' },
+  ranch:     { set: 'foc', name: '목장', desc: '1단계 끝에 손 카드를 원하는 만큼 버리고 그만큼 다시 뽑을 수 있다.' },
+  ricochet:  { set: 'foc', name: '도탄', desc: '뱅!으로 남의 앞에 놓인 카드를 겨냥할 수 있다. 주인이 빗나감!을 못 내면 그 카드를 버린다.' },
+  roulette:  { set: 'foc', name: '러시안 룰렛', desc: '나오는 순간, 보안관부터 빗나감!을 1장씩 낸다. 못 낸 사람이 생명 2를 잃고 끝.' },
+  sniper:    { set: 'foc', name: '저격수', desc: '뱅! 두 장을 함께 내 한 사람을 쏠 수 있다. 빗나감! 2장이 있어야 막는다(뱅! 횟수에 들지 않음).' },
+  vendetta:  { set: 'foc', name: '복수', desc: '차례를 마칠 때 "뽑기!" — ♥면 한 턴 더(다시 뽑지는 않는다).' },
+  fistful:   { set: 'foc', name: '한 줌의 카드', last: true, desc: '차례를 시작할 때 손 카드 수만큼 뱅!을 맞는다.' },
+};

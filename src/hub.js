@@ -13,7 +13,7 @@
  * 속도: 봇은 생각하는 틈(1.2~2.2초)에 더해, 방금 일어난 일(총알 · 뽑기! · 쓰러짐)을 화면이 다 보여 줄
  * 만큼 더 기다렸다가 둔다. 사람 차례의 제한 시간도 그 연출이 끝난 뒤부터 잰다.
  */
-import { Game } from './engine.js';
+import { Game, eventDeck } from './engine.js';
 import { decide } from './bot.js';
 import { CHARS, ROLES_BY_N, MIN_PLAYERS, MAX_PLAYERS } from '../public/cards.js';
 
@@ -33,6 +33,7 @@ const FX_MS = {
   turn: 1300, shot: 900, hurt: 650, heal: 600, dodge: 750, flip: 1600, boom: 1600, die: 2400,
   jailed: 1300, gatling: 1100, indians: 1100, play: 700, equip: 700, steal: 800, lose: 700,
   store: 1000, take: 550, draw: 450, show: 1100, pass: 900, spend: 500, discard: 450, over: 1500, reshuffle: 800,
+  event: 3000, revive: 1600,
 };
 const fxMs = fx => FAST ? 0 : Math.min(6000, fx.reduce((a, e) => a + (FX_MS[e.fx] || 300), 0));
 
@@ -63,7 +64,7 @@ function createRoom({ priv = false, spec = true } = {}) {
     code: makeCode(),
     phase: 'lobby',                 // lobby | intro | playing | over
     hostId: null, players: [], specs: [], nextId: 1,
-    cfg: { max: 7, turn: 60, react: 20, chars: 'random', priv: !!priv, spec: spec !== false },
+    cfg: { max: 7, turn: 60, react: 20, chars: 'random', exp: 'none', revive: false, priv: !!priv, spec: spec !== false },
     game: null, intro: null, gate: 0,
     deadline: 0, holdUntil: 0,
     timers: { act: null, dc: null, host: null, intro: null },
@@ -204,6 +205,7 @@ function finishIntro(room) {
   room.game = new Game(room.players.map(p => ({ id: p.id, name: p.name, bot: p.bot })), {
     roles: room.players.map(p => I.roles[p.id]),
     chars: room.players.map(p => I.picks[p.id]),
+    events: eventDeck(room.cfg.exp, room.cfg.revive),
   });
   room.game.fx = [];                 // 첫 "차례" 연출은 관문이 대신한다
   room.phase = 'playing';
@@ -363,7 +365,7 @@ function roomList() {
   rs.sort((a, b) => open(a) - open(b) || b.r.madeAt - a.r.madeAt);
   const list = rs.slice(0, 20).map(({ r, state }) => {
     const host = playerOf(r, r.hostId);
-    const e = { host: host ? host.name : '', n: r.players.length, humans: r.players.filter(p => !p.bot).length, max: r.cfg.max, state, spec: r.cfg.spec, watching: r.specs.length };
+    const e = { host: host ? host.name : '', exp: r.cfg.exp, n: r.players.length, humans: r.players.filter(p => !p.bot).length, max: r.cfg.max, state, spec: r.cfg.spec, watching: r.specs.length };
     if (r.cfg.priv) { e.priv = true; return e; }
     return Object.assign({ code: r.code }, e);
   });
@@ -476,6 +478,8 @@ export function handle(ws, msg) {
       if (REACT_SECS.includes(msg.react)) room.cfg.react = msg.react;
       if (Number.isInteger(msg.max) && msg.max >= MIN_PLAYERS && msg.max <= MAX_PLAYERS && msg.max >= room.players.length) room.cfg.max = msg.max;
       if (msg.chars === 'random' || msg.chars === 'pick') room.cfg.chars = msg.chars;
+      if (['none', 'hn', 'foc', 'both', 'either'].includes(msg.exp)) room.cfg.exp = msg.exp;
+      if (typeof msg.revive === 'boolean') room.cfg.revive = msg.revive;
       if (typeof msg.priv === 'boolean') room.cfg.priv = msg.priv;
       if (typeof msg.spec === 'boolean') room.cfg.spec = msg.spec;
       pushState(room); listChanged();

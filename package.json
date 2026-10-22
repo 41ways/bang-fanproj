@@ -5,7 +5,7 @@
   "description": "뱅! — 서부 총잡이 정체 숨기기 카드게임 (비공식 팬 프로젝트)",
   "scripts": {
     "start": "node server.js",
-    "test": "node test/rules.js && node test/sim.js 1 1000 && node test/hub.js",
+    "test": "node test/rules.js && node test/events.js && node test/sim.js 1 1000 && node test/hub.js",
     "deploy": "wrangler deploy"
   },
   "dependencies": {
