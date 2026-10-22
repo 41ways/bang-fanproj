@@ -1157,7 +1157,18 @@ document.addEventListener('mouseover', e => {
 });
 document.addEventListener('mousemove', e => { tipAt = { x: e.clientX, y: e.clientY }; if (!tip.hidden) placeTip(e.clientX, e.clientY); });
 document.addEventListener('pointerdown', () => { clearTimeout(tipT); hideTip(); });
-function tipFor(id) { if (matchMedia('(hover: none)').matches) toast(`${KINDS[DECK[id].k].name} — ${KINDS[DECK[id].k].desc}`); }
+function tipFor(id) { if (matchMedia('(hover: none)').matches) infoPop(tipCard(DECK[id])); }
+/* 손가락으로는 마우스를 올릴 수 없으니 — 누르면 크게 보여 준다(대상을 고르는 중이 아닐 때) */
+function infoPop(html) { openPop(`<div class="info-pop">${html}</div><div class="pop-acts"><button class="wbtn dark" data-x><span>닫기</span></button></div>`); }
+document.addEventListener('click', e => {
+  if (!matchMedia('(hover: none)').matches || screen !== 'game') return;
+  if (e.target.closest('#hand, #pop, #act, .chat, #help')) return;
+  if (e.target.closest('.o-tbl .card.aim, .opp.target, .me.target')) return;
+  const c = e.target.closest('.card[data-cid]'), ch = !c && e.target.closest('[data-char]'), ev = !c && !ch && e.target.closest('.ecard[data-ev]');
+  if (c) infoPop(tipCard(DECK[Number(c.dataset.cid)]));
+  else if (ch) infoPop(tipChar(ch.dataset.char));
+  else if (ev) { const E = EVENTS[ev.dataset.ev]; infoPop(`<h4>${E.name}</h4><p>${esc(E.desc)}</p>`); }
+}, true);
 
 /* ─────────────────────────── 규칙 ─────────────────────────── */
 const HELP = {

@@ -387,7 +387,7 @@ body.spec .reacts { display: none; }
 .final { list-style: none; margin: 0 0 20px; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; text-align: left; }
 .final li { display: flex; gap: 10px; align-items: center; padding: 8px; background: rgba(255, 248, 230, .55); border-radius: 8px; box-shadow: 0 0 0 1.5px rgba(70, 45, 20, .3); }
 .final li.win { box-shadow: 0 0 0 3px var(--gold), 0 0 14px rgba(232, 182, 76, .6); background: rgba(255, 236, 180, .7); }
-.final li.dead img { filter: grayscale(1); }
+.final li.dead > img { filter: grayscale(1); }
 .final img { width: 50px; height: 50px; border-radius: 8px; object-fit: cover; border: 2px solid #3a2414; }
 .final span { display: flex; flex-direction: column; line-height: 1.3; min-width: 0; }
 .final small { font-size: 12.5px; color: var(--ink-2); }
@@ -611,3 +611,8 @@ body.spec #bEmo { display: none; }
 .lobby .lobby-head { border-bottom: 0; }
 .lobby .rules-line { margin-top: 10px; padding: 6px 12px; }
 .seat-card.free { background: rgba(255, 244, 220, .6); border-color: rgba(60, 38, 18, .55); }
+
+.info-pop { text-align: left; max-width: 300px; margin: 0 auto; }
+.info-pop .card { --cw: 180px; --ch: 260px; margin: 0 auto 10px; }
+.info-pop .tip-por { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 10px; border: 2px solid #3a2414; }
+.info-pop h4 { margin: 6px 0 4px; font-size: 19px; } .info-pop h4 small { font-weight: 400; font-size: 13px; color: var(--ink-2); } .info-pop p { margin: 0; font-size: 15px; line-height: 1.55; }

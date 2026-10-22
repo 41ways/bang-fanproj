@@ -733,7 +733,7 @@ export class Game {
           }
         } else {
           this.bangs++;
-          this.log(`${this.nm(p)} 님이 ${this.nm(T)} 님에게 ${this.cn(c)}!`, 'atk');
+          this.log(`${this.nm(p)} 님이 ${this.nm(T)} 님에게 ${this.cnj(c, '을', '를')} 쏩니다.`, 'atk');
           yield* this.shoot(p, T, this.ab(p, 'slab') ? 2 : 1, '뱅!');
         }
         break;
