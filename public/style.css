@@ -616,3 +616,16 @@ body.spec #bEmo { display: none; }
 .info-pop .card { --cw: 180px; --ch: 260px; margin: 0 auto 10px; }
 .info-pop .tip-por { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 10px; border: 2px solid #3a2414; }
 .info-pop h4 { margin: 6px 0 4px; font-size: 19px; } .info-pop h4 small { font-weight: 400; font-size: 13px; color: var(--ink-2); } .info-pop p { margin: 0; font-size: 15px; line-height: 1.55; }
+/* 폰에서 방 고르기 전단이 화면 밖으로 넘치던 것 */
+.setup > * { min-width: 0; }
+@media (max-width: 900px) { .setup { width: 100%; } }
+@media (max-width: 520px) {
+  #setup { padding: 58px 10px 16px; }
+  .gate { padding: 46px 22px 30px; }
+  .gate .back { top: 12px; left: 14px; width: 34px; height: 34px; font-size: 19px; }
+  .gate .wbtn.big { min-width: 0; width: 100%; }
+  .name-in { font-size: 22px; }
+  .join-row .wbtn { min-width: 78px; padding: 0 14px; }
+  .board { border-width: 20px; border-image-width: 20px; }
+  #lobby { padding: 58px 8px 14px; }
+}
