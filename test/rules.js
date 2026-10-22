@@ -261,5 +261,19 @@ const empty = g => { for (const p of g.players) { g.pile.push(...p.hand); p.hand
   ok(!g.P('p0').table.length, '다이너마이트를 버림');
 }
 
+/* 쓰러질 때 다음 사람이 페드로면 맨 위에 올 카드를 고른다 (BGA) */
+{
+  const g = setup(['willy', 'bart', 'pedro', 'sid'], ['sheriff', 'renegade', 'outlaw', 'outlaw']);
+  empty(g);
+  hand(g, 'p0', [find('bang', 'D', 2), find('beer', 'H', 6)]);
+  hand(g, 'p1', [find('stagecoach'), find('scope')]);
+  g.P('p1').hp = 1;
+  g.answer('p0', { a: 'play', c: find('bang', 'D', 2), t: 'p1' });
+  if (g.req.kind === 'react') g.answer('p1', { a: 'take' });
+  ok(g.req.kind === 'order' && g.req.to === 'p1', '다음이 페드로 — 맨 위 카드를 묻는다');
+  g.answer('p1', { a: 'pick', c: find('stagecoach') });
+  ok(g.pile[g.pile.length - 1] === find('stagecoach'), '고른 카드가 맨 위');
+}
+
 console.log(fails ? `✗ ${fails}/${n} 실패` : `규칙 ${n}개 통과`);
 process.exit(fails ? 1 : 0);

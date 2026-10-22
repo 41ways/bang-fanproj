@@ -245,6 +245,7 @@ export class Game {
       }
       case 'pedro': if (r.a === 'deck' || (r.a === 'discard' && this.pile.length)) return; bad('잘못된 답'); return;
       case 'kit': if (r.a !== 'back' || !q.cards.includes(r.c)) bad('돌려놓을 카드를 고르세요'); return;
+      case 'order': if (r.a !== 'pick' || !q.cards.includes(r.c)) bad('맨 위에 올 카드를 고르세요'); return;
       case 'daltons': if (r.a !== 'pick' || !p.table.includes(r.c)) bad('내 앞의 파란 카드를 고르세요'); return;
       case 'blood': {
         if (r.a === 'skip') return;
@@ -937,7 +938,14 @@ export class Game {
       vul.hand.push(...all);
       this.log(`벌처 샘이 ${this.nm(p)} 님의 카드 ${all.length}장을 모두 가져갑니다.`);
       this.emit({ fx: 'steal', from: p.id, to: vul.id, n: all.length });
-    } else for (const c of all) this.toPile(c);
+    } else {
+      // 다음 사람이 페드로 라미레즈면 버린 카드 맨 위가 중요하다 — 쓰러지는 사람이 맨 위에 올 카드를 고른다(BGA)
+      let topC = null;
+      const nx = this.alive().length ? this.next(p) : null;
+      if (nx && this.ab(nx, 'pedro') && all.length >= 2) { this.limbo = [...all]; topC = (yield* this.ask({ to: p.id, kind: 'order', cards: [...all] })).c; this.limbo = []; }
+      for (const c of all) if (c !== topC) this.toPile(c);
+      if (topC != null) this.toPile(topC);
+    }
 
     this.win();
 
@@ -1024,7 +1032,7 @@ export class Game {
         }
         if (q.kind === 'react') { v.req.ok = q.ok; v.req.barrel = q.barrel; }
         if (q.kind === 'lucky') { v.req.cards = q.cards.map(card); v.req.what = q.what; }
-        if (q.kind === 'store' || q.kind === 'kit' || q.kind === 'daltons') v.req.cards = q.cards.map(card);
+        if (q.kind === 'store' || q.kind === 'kit' || q.kind === 'daltons' || q.kind === 'order') v.req.cards = q.cards.map(card);
         if (q.kind === 'pedro') v.req.top = card(q.top);
         if (q.kind === 'blood') v.req.tg = q.tg;
       }

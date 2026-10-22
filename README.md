@@ -40,7 +40,7 @@ tools/             제미나이 그림 → public/img (make_assets.py 하나로 
 
 ```bash
 npm install
-npm test                    # 규칙 46개 · 이벤트 52개 · 봇끼리(확장 섞어) 1000판 · 방 흐름
+npm test                    # 규칙 48개 · 이벤트 61개 · 봇끼리(확장 섞어) 1000판 · 방 흐름
 node server.js              # http://localhost:8860
 node server.js 8861 fast    # 봇이 기다리지 않는다
 ```

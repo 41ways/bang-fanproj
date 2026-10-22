@@ -780,7 +780,7 @@ function renderAct() {
   } else if (!rm) {
     if (r.to === me) text = '…';
     else {
-      const doing = { play: '카드를 내는 중', discard: '카드를 버리는 중', react: '막을지 고민하는 중', dying: '맥주를 찾는 중', store: '잡화점에서 고르는 중', jesse: '첫 장을 어디서 가져올지 고르는 중', pedro: '첫 장을 어디서 가져올지 고르는 중', kit: '카드를 고르는 중', lucky: '뽑기! 두 장 중 고르는 중', daltons: '버릴 파란 카드를 고르는 중', blood: '생명을 나눠 줄지 고민하는 중', liquor: '독한 술을 마실지 고민하는 중', peyote: '빨강일지 검정일지 맞히는 중', ranch: '바꿀 카드를 고르는 중' }[r.kind];
+      const doing = { play: '카드를 내는 중', discard: '카드를 버리는 중', react: '막을지 고민하는 중', dying: '맥주를 찾는 중', store: '잡화점에서 고르는 중', jesse: '첫 장을 어디서 가져올지 고르는 중', pedro: '첫 장을 어디서 가져올지 고르는 중', kit: '카드를 고르는 중', lucky: '뽑기! 두 장 중 고르는 중', daltons: '버릴 파란 카드를 고르는 중', blood: '생명을 나눠 줄지 고민하는 중', liquor: '독한 술을 마실지 고민하는 중', peyote: '빨강일지 검정일지 맞히는 중', ranch: '바꿀 카드를 고르는 중', order: '버린 카드 맨 위에 올 카드를 고르는 중' }[r.kind];
       text = `${esc(nameOf(r.to))} 님이 ${doing}…`;
       if (r.kind === 'react' && r.from != null) text = `${esc(nameOf(r.from))} 님의 ${WHY[r.why]} — ${esc(nameOf(r.to))} 님이 ${r.why === 'duel' || r.why === 'indians' ? '뱅!을 낼지' : '막을지'} 고민하는 중…`;
       if (r.kind === 'react' && r.why === 'roulette') text = `러시안 룰렛 — ${esc(nameOf(r.to))} 님 차례… 빗나감!을 낼까?`;
@@ -876,6 +876,10 @@ function renderAct() {
         text = '<b>달튼 형제</b> — 내 앞의 파란 카드 중 1장을 버려야 해요';
         setTimeout(() => daltonsPop(rm), 0);
         break;
+      case 'order':
+        text = '<b>쓰러졌어요</b> — 다음 사람이 페드로 라미레즈라서, 버린 카드 맨 위에 올 1장을 고르세요';
+        setTimeout(() => orderPop(rm), 0);
+        break;
       case 'blood':
         text = '<b>피를 나눈 형제</b> — 생명 1을 잃고 빛나는 사람에게 1을 줄 수 있어요';
         B('건너뛰기', () => act({ a: 'skip' }), 'dark');
@@ -915,6 +919,12 @@ function luckyPop(r) {
   if (!q || q.kind !== 'lucky' || !$('#pop').hidden) return;
   const hint = { '술통': '♥가 나오면 빗나감!', '감옥': '♥가 나오면 풀려나요', '다이너마이트': '♠2~9가 나오면 터져요' }[r.what] || '';
   openPop(`<p class="pop-title">럭키 듀크 — ${esc(r.what)} 뽑기!</p><p class="pop-sub">두 장 중 하나를 고르세요 · ${hint}</p><div class="sp-row">${r.cards.map(c => `<button class="sp-opt" data-c="${c.id}">${cardHTML(c)}</button>`).join('')}</div>`, true);
+  $$('#popBox [data-c]').forEach(b => b.onclick = () => { closePop(); act({ a: 'pick', c: Number(b.dataset.c) }); });
+}
+function orderPop(r) {
+  const q = myReq();
+  if (!q || q.kind !== 'order' || !$('#pop').hidden) return;
+  openPop(`<p class="pop-title">버린 카드 맨 위</p><p class="pop-sub">다음 차례인 페드로 라미레즈는 버린 카드 맨 위를 가져갈 수 있어요. 맨 위에 올 1장을 고르세요</p><div class="sp-row">${r.cards.map(c => `<button class="sp-opt" data-c="${c.id}">${cardHTML(c)}</button>`).join('')}</div>`, true);
   $$('#popBox [data-c]').forEach(b => b.onclick = () => { closePop(); act({ a: 'pick', c: Number(b.dataset.c) }); });
 }
 function daltonsPop(r) {

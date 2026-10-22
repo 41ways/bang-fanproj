@@ -116,6 +116,7 @@ export function decide(g, pid) {
       return top != null && val(g, me, top) >= 5 ? { a: 'discard' } : { a: 'deck' };
     }
     case 'kit': return { a: 'back', c: worst(g, me, q.cards, 1)[0] };
+    case 'order': return { a: 'pick', c: worst(g, me, q.cards, 1)[0] };   // 페드로에게 쓸모없는 카드를 맨 위로
     case 'daltons': {
       // 감옥 · 다이너마이트가 있으면 그것부터 버린다
       const bad = q.cards.find(c => C(c).k === 'jail' || C(c).k === 'dynamite');
