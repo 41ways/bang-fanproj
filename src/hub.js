@@ -288,7 +288,7 @@ function schedule(room) {
   room.deadline = Date.now() + hold + secs * 1000;
   room.timers.act = setTimeout(run(() => {
     const p = playerOf(room, q.to);
-    if (p) { p.afk = true; send(p.ws, { t: 'err', msg: '시간이 다 되어 봇이 대신 둡니다. 아무 단추나 누르면 돌아와요.' }); }
+    if (p) { p.afk = true; send(p.ws, { t: 'err', msg: '시간이 다 되어 봇이 대신 둡니다. 아래 "돌아왔어요"를 누르면 다시 직접 둬요.' }); }
     g.answer(q.to, q.kind === 'play' ? { a: 'end' } : decide(g, q.to));
   }), hold + secs * 1000 + 250);
 }

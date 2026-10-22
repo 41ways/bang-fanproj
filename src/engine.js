@@ -926,6 +926,7 @@ export class Game {
   *kill(p, src) {
     p.alive = false;
     p.hp = 0;
+    p.revealed = true;
     const back = this.revivable(p);
     if (this.firstOut == null) this.firstOut = p.id;
     p.status = back ? 'down' : 'out';
@@ -1002,7 +1003,7 @@ export class Game {
       event: this.event, eventNext: this.evDeck[0] || null, eventLeft: this.evDeck.length, events: this.evDeck.length || this.event ? true : false,
       players: this.players.map(p => ({
         id: p.id, name: p.name, bot: p.bot, seat: p.seat, char: p.char, hp: p.hp, max: p.max, alive: p.alive, status: p.status,
-        role: (p === me || p.role === 'sheriff' || p.status !== 'live' || this.over) ? p.role : null,
+        role: (p === me || p.role === 'sheriff' || p.status !== 'live' || p.revealed || this.over) ? p.role : null,
         hand: p.hand.length, table: p.table.map(card),
         range: this.range(p),
         dist: me && me.alive && p.alive ? this.dist(me, p) : null,

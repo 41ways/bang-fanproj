@@ -135,7 +135,7 @@ function handle(m) {
   if (leaving) { if (m.t !== 'left' && m.t !== 'err') return; leaving = false; if (m.t === 'err') return; }
   switch (m.t) {
     case 'welcome':
-      wokeUp = false; entering = 0;
+      wokeUp = false; entering = 0; quitting = false; sentSeq = '';
       if (m.code !== chatRoom) { chatRoom = m.code; chatReset(); }
       specRejoin = false;
       if (m.role === 'spec') {
@@ -155,11 +155,13 @@ function handle(m) {
     case 'err':
       entering = 0;
       toast(m.fatal && wokeUp ? '오래 비워 둔 사이 테이블이 정리됐어요. 새로 열어 주세요.' : m.msg);
+      if (!m.fatal) unsend();                 // 거절된 답 — 다시 고를 수 있게
       if (m.fatal) { ss.del('code'); ss.del('token'); specCtx = null; specId = null; S = null; show('setup'); }
       else if (specRejoin) { specRejoin = false; specCtx = null; specId = null; show('setup'); }
       wokeUp = false;
       break;
     case 'left':
+      quitting = false;
       ss.del('code'); ss.del('token'); specCtx = null; specId = null; S = null;
       history.replaceState(null, '', location.pathname);
       show('setup');
@@ -296,7 +298,9 @@ $('#roomList').addEventListener('click', e => {
 });
 
 /* ─────────────────────────── 상태 받기 ─────────────────────────── */
+let quitting = false;
 function onState(m) {
+  if (quitting) return;
   if (m.now) skew = m.now - Date.now();
   me = m.role === 'spec' ? null : (m.you != null ? m.you : me);
   const prev = S;
@@ -304,8 +308,8 @@ function onState(m) {
   countGame(prev, m);
   document.body.classList.toggle('spec', isSpec());
   syncChatVisible();
-  if (m.phase === 'lobby') { queue.length = 0; drawn = null; gateShown = false; closePop(); show('lobby'); renderLobby(); return; }
-  if (m.phase === 'intro') { queue.length = 0; drawn = null; gateShown = false; show('intro'); renderIntro(); return; }
+  if (m.phase === 'lobby') { queue.length = 0; drawn = null; gateShown = false; sentSeq = ''; if (screen !== 'lobby') closePop(); show('lobby'); renderLobby(); return; }
+  if (m.phase === 'intro') { queue.length = 0; drawn = null; gateShown = false; sentSeq = ''; closePop(); show('intro'); renderIntro(); return; }
   // 판 — 연출을 차례로 보여 주며 그린다
   if (m.reset && !queue.length) $('#logIn').textContent = '';
   queue.push(m);
@@ -457,22 +461,27 @@ async function pump() {
       // 새 상태를 먼저 그리고 그 위에서 연출을 보여 준다 — 다 끝나야 다음 상태로 (서버도 그만큼 기다린다)
       if (!fast && had && m.fx && m.fx.length) await playFx(m.fx);
       if (m.phase === 'over' && !overShown) { overShown = true; setTimeout(showOver, fast ? 300 : 1800); }
+      else if (m.phase === 'over' && screen === 'over') showOver();
       if (m.phase !== 'over') overShown = false;
     }
   } finally { pumping = false; }
 }
 
 /* 고르는 중인 것 — 요청(seq)이 바뀌면 비운다 */
-let sel = [], mode = null, selSeq = 0, sentSeq = 0;
+let sel = [], mode = null, selSeq = 0, sentSeq = '', sentAt = 0;
+const reqKey = q => (S ? S.code + ':' + S.gameNo + ':' : '') + q.seq;
+function unsend() { if (!sentSeq) return; sentSeq = ''; if (screen === 'game' && G()) renderGame(); }
 function resetSel() { sel = []; mode = null; }
 
 const G = () => drawn && drawn.g;
-const myReq = () => { const g = G(); return g && g.req && g.req.to === me && !drawn.auto && g.req.seq !== sentSeq ? g.req : null; };
+const myReq = () => { const g = G(); return g && g.req && g.req.to === me && !drawn.auto && reqKey(g.req) !== sentSeq ? g.req : null; };
 const myP = () => (G() && me != null ? G().players.find(p => p.id === me) : null);
 
 let gateShown = false;
 function renderGame() {
   const g = G(); if (!g) return;
+  const pk = $('#pop').dataset.kind;
+  if (pk && !$('#pop').hidden && (!myReq() || myReq().kind !== pk)) closePop();
   if (!g.req || g.req.seq !== selSeq) { resetSel(); selSeq = g.req ? g.req.seq : 0; }
   document.body.classList.toggle('my-turn', g.turn === me && !g.over);
   renderOpps(); renderCenter(); renderMe(); renderHand(); renderAct();
@@ -591,7 +600,7 @@ function renderMe() {
   if (!p) { box.className = 'me spec'; box.innerHTML = '<p class="me-spec">관전 중 — 손 카드는 보이지 않아요</p>'; return; }
   const g = G();
   box.className = 'me' + (p.id === g.turn && !g.over ? ' turn' : '') + (!p.alive ? ' dead' : '') + (g.req && g.req.to === me && !g.over ? ' asked' : '') + (targets().has(me) ? ' target' : '');
-  const bangUsed = g.turn === me && g.bangs && p.char !== 'willy' && !p.table.some(c => c.k === 'volcanic');
+  const bangUsed = g.turn === me && g.bangs && g.bangs >= g.bangLimit;
   box.innerHTML = `
     <div class="me-card por" data-char="${p.char}"><img src="${CHAR_IMG(p.char)}" alt="">${ringSVG}<span class="rb ${p.role}">${roleImg(p.role)}</span></div>
     <div class="me-info">
@@ -650,7 +659,11 @@ function eligible() {
   if (r.kind === 'ranch') return new Set(hand.map(c => c.id));
   if (r.kind === 'discard') return new Set(hand.map(c => c.id));
   if (r.kind === 'react') return new Set(hand.filter(c => r.ok.includes(c.k)).map(c => c.id));
-  if (r.kind === 'dying') return mode === 'sid' ? new Set(hand.map(c => c.id)) : new Set(hand.filter(c => c.k === 'beer').map(c => c.id));
+  if (r.kind === 'dying') {
+    if (mode === 'sid') return new Set(hand.map(c => c.id));
+    const g = G();
+    return g.players.filter(x => x.alive).length > 2 && g.event !== 'reverend' ? new Set(hand.filter(c => c.k === 'beer').map(c => c.id)) : new Set();
+  }
   return new Set();
 }
 /** 도탄으로 겨냥할 수 있는 남의 카드 */
@@ -750,10 +763,12 @@ function stealPick(c, pid) {
 }
 
 function act(r) {
-  const q = G() && G().req;
+  const q = myReq();
   if (!q) return;
-  sentSeq = q.seq;
+  sentSeq = reqKey(q); sentAt = Date.now();
   send({ t: 'act', seq: q.seq, r });
+  // 답이 어디선가 사라졌다면(끊김 등) 5초 뒤 다시 고를 수 있게
+  setTimeout(() => { if (sentSeq === reqKey(q) && G() && G().req && reqKey(G().req) === sentSeq) unsend(); }, 5000);
   resetSel();
   sfx.pop();
   renderGame();
@@ -814,7 +829,8 @@ function renderAct() {
           text = `<b>당신의 차례</b> — 카드를 내거나 턴을 끝내세요<small>빛나는 카드를 누르면 고르고, 한 번 더 누르면 씁니다 · ${lim >= 99 ? '뱅! 제한 없음' : lim === 0 ? '설교 — 뱅!을 쓸 수 없어요' : g.bangs >= lim ? '이번 턴 뱅!을 다 썼어요' : `뱅!은 한 턴에 ${lim}장`}${g.me.mustPlay != null ? ' · <b>서부의 법 — 주황빛 카드를 꼭 내야 해요</b>' : ''}</small>`;
           if (p.char === 'sid' && g.event !== 'hangover' && p.hp < p.max && g.me.hand.length >= 2) B('시드: 2장 버리고 +1', () => { mode = 'sid'; sel = []; renderGame(); }, '');
         }
-        B('턴 끝내기', () => act({ a: 'end' }), c ? '' : 'red');
+        const mustNow = g.me.mustPlay != null && rm.moves[g.me.mustPlay];
+        B(mustNow ? '턴 끝내기 (서부의 법 카드부터)' : '턴 끝내기', () => act({ a: 'end' }), c ? '' : 'red', !!mustNow);
         break;
       }
       case 'discard':
@@ -832,7 +848,8 @@ function renderAct() {
         else if (rm.why === 'indians') text = `<b>${from} 님의 인디언!</b> 뱅!을 1장 버리거나 생명 1을 잃어요`;
         else text = `<b>${from} 님과 결투!</b> 뱅!을 1장 버리면 상대 차례, 못 버리면 생명 1을 잃어요`;
         if (rm.barrel) B(p.char === 'jourdonnais' && !p.table.some(t => t.k === 'barrel') ? '🛢 능력: 술통 뽑기' : '🛢 술통 쓰기', () => act({ a: 'barrel' }), 'red');
-        if (elig.length) B(rm.why !== 'duel' && rm.why !== 'indians' ? (rm.need > 1 ? `빗나감! 내기 (${Math.min(elig.length, rm.need)}장)` : `${KINDS[rm.ok[0]].name} 내기`) : `${KINDS[rm.ok.find(k => elig.some(c => c.k === k)) || rm.ok[0]].name} 버리기`, () => {
+        const firstK = (elig.find(c => c.k === rm.ok[0]) || elig[0] || { k: rm.ok[0] }).k;
+        if (elig.length) B(rm.why !== 'duel' && rm.why !== 'indians' ? (rm.need > 1 ? `빗나감! 내기 (${Math.min(elig.length, rm.need)}장)` : `${KINDS[firstK].name} 내기`) : `${KINDS[rm.ok.find(k => elig.some(c => c.k === k)) || rm.ok[0]].name} 버리기`, () => {
           let cs = sel.filter(id => elig.some(c => c.id === id));
           for (const c of [...elig].sort((a, b) => (a.k === rm.ok[0] ? -1 : 1) - (b.k === rm.ok[0] ? -1 : 1))) { if (cs.length >= rm.need) break; if (!cs.includes(c.id)) cs.push(c.id); }
           act({ a: 'cards', cs: cs.slice(0, rm.need) });
@@ -841,7 +858,8 @@ function renderAct() {
         break;
       }
       case 'dying': {
-        text = `<b>마지막 생명을 잃었어요!</b> 생명 ${rm.need}만큼 버텨야 살아요`;
+        const beerOk = g.players.filter(x => x.alive).length > 2 && g.event !== 'reverend';
+        text = `<b>마지막 생명을 잃었어요!</b> ${rm.need > 1 ? `맥주 ${rm.need}잔이 있어야 살아요` : '맥주 한 잔이면 살아요'}${beerOk ? '' : g.event === 'reverend' ? ' — 하지만 목사 때문에 맥주를 낼 수 없어요' : ' — 하지만 두 명만 남아 맥주는 효과가 없어요'}`;
         if (mode === 'sid') {
           text = `<b>시드 케첨</b> — 버릴 카드 2장 (${sel.length}/2)`;
           B('생명 +1', () => act({ a: 'sid', cs: sel }), 'red', sel.length !== 2);
@@ -849,7 +867,7 @@ function renderAct() {
           break;
         }
         const beer = g.me.hand.find(c => c.k === 'beer');
-        if (beer && g.players.filter(x => x.alive).length > 2) B('🍺 맥주 마시기', () => act({ a: 'beer', c: beer.id }), 'red');
+        if (beer && beerOk) B('🍺 맥주 마시기', () => act({ a: 'beer', c: beer.id }), 'red');
         if (p.char === 'sid' && g.event !== 'hangover' && g.me.hand.length >= 2) B('시드: 2장 버리고 +1', () => { mode = 'sid'; sel = []; renderGame(); }, '');
         B('쓰러지기', () => act({ a: 'die' }), 'dark');
         break;
@@ -870,7 +888,7 @@ function renderAct() {
         break;
       case 'lucky':
         text = `<b>럭키 듀크</b> — ${rm.what} 뽑기! 두 장 중 쓸 카드를 고르세요`;
-        setTimeout(() => luckyPop(rm), 0);
+        setTimeout(() => luckyPop(rm), $('#flip').hidden ? 0 : 1300);
         break;
       case 'daltons':
         text = '<b>달튼 형제</b> — 내 앞의 파란 카드 중 1장을 버려야 해요';
@@ -917,26 +935,27 @@ $('#store').addEventListener('click', e => {
 function luckyPop(r) {
   const q = myReq();
   if (!q || q.kind !== 'lucky' || !$('#pop').hidden) return;
-  const hint = { '술통': '♥가 나오면 빗나감!', '감옥': '♥가 나오면 풀려나요', '다이너마이트': '♠2~9가 나오면 터져요' }[r.what] || '';
-  openPop(`<p class="pop-title">럭키 듀크 — ${esc(r.what)} 뽑기!</p><p class="pop-sub">두 장 중 하나를 고르세요 · ${hint}</p><div class="sp-row">${r.cards.map(c => `<button class="sp-opt" data-c="${c.id}">${cardHTML(c)}</button>`).join('')}</div>`, true);
+  const ov = G().event === 'blessing' ? ' (축복 — 모든 무늬가 ♥)' : G().event === 'curse' ? ' (저주 — 모든 무늬가 ♠)' : '';
+  const hint = ({ '술통': '♥가 나오면 빗나감!', '감옥': '♥가 나오면 풀려나요', '다이너마이트': '♠2~9가 나오면 터져요', '복수': '♥가 나오면 한 턴 더' }[r.what] || '좋은 쪽을 고르세요') + ov;
+  openPop(`<p class="pop-title">럭키 듀크 — ${esc(r.what)} 뽑기!</p><p class="pop-sub">두 장 중 하나를 고르세요 · ${hint}</p><div class="sp-row">${r.cards.map(c => `<button class="sp-opt" data-c="${c.id}">${cardHTML(c)}</button>`).join('')}</div>`, true, 'lucky');
   $$('#popBox [data-c]').forEach(b => b.onclick = () => { closePop(); act({ a: 'pick', c: Number(b.dataset.c) }); });
 }
 function orderPop(r) {
   const q = myReq();
   if (!q || q.kind !== 'order' || !$('#pop').hidden) return;
-  openPop(`<p class="pop-title">버린 카드 맨 위</p><p class="pop-sub">다음 차례인 페드로 라미레즈는 버린 카드 맨 위를 가져갈 수 있어요. 맨 위에 올 1장을 고르세요</p><div class="sp-row">${r.cards.map(c => `<button class="sp-opt" data-c="${c.id}">${cardHTML(c)}</button>`).join('')}</div>`, true);
+  openPop(`<p class="pop-title">버린 카드 맨 위</p><p class="pop-sub">다음 차례인 페드로 라미레즈는 버린 카드 맨 위를 가져갈 수 있어요. 맨 위에 올 1장을 고르세요</p><div class="sp-row">${r.cards.map(c => `<button class="sp-opt" data-c="${c.id}">${cardHTML(c)}</button>`).join('')}</div>`, true, 'order');
   $$('#popBox [data-c]').forEach(b => b.onclick = () => { closePop(); act({ a: 'pick', c: Number(b.dataset.c) }); });
 }
 function daltonsPop(r) {
   const q = myReq();
   if (!q || q.kind !== 'daltons' || !$('#pop').hidden) return;
-  openPop(`<p class="pop-title">달튼 형제</p><p class="pop-sub">내 앞의 파란 카드 중 버릴 1장을 고르세요</p><div class="sp-row">${r.cards.map(c => `<button class="sp-opt" data-c="${c.id}">${cardHTML(c)}</button>`).join('')}</div>`, true);
+  openPop(`<p class="pop-title">달튼 형제</p><p class="pop-sub">내 앞의 파란 카드 중 버릴 1장을 고르세요</p><div class="sp-row">${r.cards.map(c => `<button class="sp-opt" data-c="${c.id}">${cardHTML(c)}</button>`).join('')}</div>`, true, 'daltons');
   $$('#popBox [data-c]').forEach(b => b.onclick = () => { closePop(); act({ a: 'pick', c: Number(b.dataset.c) }); });
 }
 function kitPop(r) {
   const q = myReq();
   if (!q || q.kind !== 'kit' || !$('#pop').hidden) return;
-  openPop(`<p class="pop-title">킷 칼슨</p><p class="pop-sub">더미 위로 돌려놓을 1장을 고르세요 — 나머지 2장을 가집니다</p><div class="sp-row">${r.cards.map(c => `<button class="sp-opt" data-c="${c.id}">${cardHTML(c)}</button>`).join('')}</div>`, true);
+  openPop(`<p class="pop-title">킷 칼슨</p><p class="pop-sub">더미 위로 돌려놓을 1장을 고르세요 — 나머지 2장을 가집니다</p><div class="sp-row">${r.cards.map(c => `<button class="sp-opt" data-c="${c.id}">${cardHTML(c)}</button>`).join('')}</div>`, true, 'kit');
   $$('#popBox [data-c]').forEach(b => b.onclick = () => { closePop(); act({ a: 'back', c: Number(b.dataset.c) }); });
 }
 
@@ -1115,7 +1134,8 @@ const leave = () => {
   if (ws && ws.readyState === 1) send({ t: 'leave' });
   else if (code && token) { leaving = true; connect(() => { send({ t: 'resume', code, token }); send({ t: 'leave' }); }); }
   history.replaceState(null, '', location.pathname);
-  S = null; drawn = null; queue.length = 0;
+  S = null; drawn = null; queue.length = 0; quitting = !!(code && token);
+  setTimeout(() => { quitting = false; }, 3000);
   show('setup');
 };
 $('#bLeave1').onclick = leave;
@@ -1127,15 +1147,16 @@ $('#bLeave2').onclick = () => {
 };
 
 /* ─────────────────────────── 창 · 크게 보기 ─────────────────────────── */
-function openPop(html, sticky) {
+function openPop(html, sticky, kind) {
   $('#popBox').innerHTML = html;
   $('#pop').hidden = false;
   $('#pop').dataset.sticky = sticky ? '1' : '';
+  $('#pop').dataset.kind = kind || '';
   $$('#popBox [data-x]').forEach(b => b.onclick = closePop);
 }
 function closePop() {
   const was = !$('#pop').hidden;
-  $('#pop').hidden = true; $('#popBox').innerHTML = ''; $('#pop').dataset.sticky = '';
+  $('#pop').hidden = true; $('#popBox').innerHTML = ''; $('#pop').dataset.sticky = ''; $('#pop').dataset.kind = '';
   if (was && screen === 'game' && G()) setTimeout(() => { if (screen === 'game' && G()) renderAct(); }, 0);
 }
 $('#pop').onclick = e => { if (e.target.id === 'pop' && !$('#pop').dataset.sticky) closePop(); };
@@ -1172,7 +1193,7 @@ function tipFor(id) { if (matchMedia('(hover: none)').matches) infoPop(tipCard(D
 function infoPop(html) { openPop(`<div class="info-pop">${html}</div><div class="pop-acts"><button class="wbtn dark" data-x><span>닫기</span></button></div>`); }
 document.addEventListener('click', e => {
   if (!matchMedia('(hover: none)').matches || screen !== 'game') return;
-  if (e.target.closest('#hand, #pop, #act, .chat, #help')) return;
+  if (e.target.closest('#hand, #pop, #act, .chat, #help, #store .card.can')) return;
   if (e.target.closest('.o-tbl .card.aim, .opp.target, .me.target')) return;
   const c = e.target.closest('.card[data-cid]'), ch = !c && e.target.closest('[data-char]'), ev = !c && !ch && e.target.closest('.ecard[data-ev]');
   if (c) infoPop(tipCard(DECK[Number(c.dataset.cid)]));
@@ -1204,11 +1225,11 @@ const HELP = {
     <h4>🃏 한 줌의 카드</h4><div class="help-ev">${Object.keys(EVENTS).filter(k => EVENTS[k].set === 'foc').map(k => `<div><b>${EVENTS[k].name}</b>${EVENTS[k].last ? ' (마지막)' : ''} — ${esc(EVENTS[k].desc)}</div>`).join('')}</div>`,
   chars: () => `<div class="help-chars">${Object.keys(CHARS).map(k => `<div class="hch"><img src="${CHAR_IMG(k)}" alt=""><p><b>${CHARS[k].name}</b> <small>생명 ${CHARS[k].hp}</small><br>${esc(CHARS[k].desc)}</p></div>`).join('')}</div>`,
   ui: () => `<ul class="tips">
-    <li>시작하면 역할 카드를 받고, <b>인물 카드 두 장 중 하나</b>를 고른다. 모두 고르면 보안관부터 시작한다.</li>
+    <li>시작하면 역할 카드를 받고 인물을 확인한다(방장이 "두 장 중 고르기"로 정했으면 둘 중 하나를 고른다). 모두 마치면 보안관부터 시작한다.</li>
     <li>내 차례에 <b>빛나는 카드</b>를 누르면 고르고, 한 번 더 누르면(또는 두 번 누르면) 쓴다. 대상이 필요한 카드는 <b>빨갛게 빛나는 자리</b>를 누른다.</li>
     <li>못 내는 카드를 누르면 까닭을 알려 준다.</li>
-    <li>누가 나를 쏘면 아래 막대에 <b>막기 / 맞기</b>가 뜬다. 술통은 저절로 먼저 뽑는다.</li>
-    <li>카드나 인물 위에 마우스를 올리면 크게 보인다. 📜는 지금까지의 기록.</li>
+    <li>누가 나를 쏘면 아래 막대에 <b>빗나감! 내기 / 맞기</b>가 뜬다. 술통이 있으면 <b>🛢 술통 쓰기</b>를 먼저 눌러 뽑기!를 할 수 있다.</li>
+    <li>카드나 인물 위에 마우스를 올리면(폰에서는 누르면) 크게 보인다. 📜는 지금까지의 기록.</li>
     <li>시간이 다 되면 턴은 끝나고 막기는 봇이 대신 고른다. 판 중에 나가면 그 자리는 봇이 이어받는다.</li>
     <li>채팅은 자유지만 손에 든 카드를 그대로 말하는 건 반칙!</li></ul>`,
 };
