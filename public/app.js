@@ -817,7 +817,7 @@ function renderAct() {
         const from = esc(nameOf(rm.from));
         const elig = g.me.hand.filter(c => rm.ok.includes(c.k));
         if (rm.why === 'bang' || rm.why === 'gatling' || rm.why === 'sniper') text = `<b>${from} 님의 ${WHY[rm.why]}${rm.why === 'gatling' ? '!' : ''}</b> ${rm.need > 1 ? `빗나감! ${rm.need}장이 있어야 막을 수 있어요` : '빗나감!으로 막을까요?'}`;
-        else if (rm.why === 'ricochet') text = `<b>${from} 님의 도탄!</b> 내 ${rm.tc ? KINDS[rm.tc.k].name : '카드'}을(를) 지키려면 빗나감!을 내세요`;
+        else if (rm.why === 'ricochet') { const nm = rm.tc ? KINDS[rm.tc.k].name : '카드'; text = `<b>${from} 님의 도탄!</b> 내 ${nm}${josa(nm, '을', '를')} 지키려면 빗나감!을 내세요`; }
         else if (rm.why === 'roulette') text = `<b>러시안 룰렛!</b> 빗나감!을 내지 못하면 생명 2를 잃고 룰렛이 멈춰요`;
         else if (rm.why === 'fistful') text = `<b>한 줌의 카드</b> — 뱅!이 날아옵니다${rm.left ? ` (이 뒤로 ${rm.left}발 더)` : ' (마지막 한 발)'}`;
         else if (rm.why === 'indians') text = `<b>${from} 님의 인디언!</b> 뱅!을 1장 버리거나 생명 1을 잃어요`;

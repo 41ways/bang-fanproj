@@ -80,7 +80,9 @@ export class Game {
   log(text, cls) { this.logs.push({ n: this.logN = (this.logN || 0) + 1, text, cls }); if (this.logs.length > 400) this.logs.splice(0, 100); }
   emit(e) { this.fx.push(e); }
   nm(p) { return p.name; }
-  cn(c) { return cardName(this.C(c)) + ' ' + cardTag(this.C(c)); }
+  cn(c) { return cardName(this.C(c)) + '(' + cardTag(this.C(c)) + ')'; }
+  /** 카드 이름 + 조사 — "레밍턴(♣K)을", "맥주(♥6)를" (받침은 카드 이름으로 본다) */
+  cnj(c, a, b) { return this.cn(c) + josa(cardName(this.C(c)).replace(/[^가-힣]/g, '') || 'ㄱ', a, b); }
   ev(k) { return this.event === k; }
   evName() { return EVENTS[this.event] ? EVENTS[this.event].name : ''; }
   /** 인물 능력 — 숙취(Hangover)면 모두 꺼진다 */
@@ -447,7 +449,7 @@ export class Game {
       this.phaseDrawn = null;
       if (this.ev('lawwest') && shown != null && p.hand.includes(shown)) {
         this.mustPlay = shown;
-        this.log(`서부의 법 — ${this.nm(p)} 님이 두 번째 장 ${this.cn(shown)}을(를) 보여 줍니다. 낼 수 있으면 꼭 내야 합니다.`);
+        this.log(`서부의 법 — ${this.nm(p)} 님이 두 번째 장 ${this.cnj(shown, '을', '를')} 보여 줍니다. 낼 수 있으면 꼭 내야 합니다.`);
         this.emit({ fx: 'show', id: p.id, c: shown });
       }
     }
@@ -518,7 +520,7 @@ export class Game {
         if (!blues.length) continue;
         const c = blues.length === 1 ? blues[0] : (yield* this.ask({ to: q.id, kind: 'daltons', cards: blues })).c;
         this.fromTable(q, c); this.toPile(c);
-        this.log(`달튼 형제 — ${this.nm(q)} 님이 ${this.cn(c)}을(를) 버렸습니다.`);
+        this.log(`달튼 형제 — ${this.nm(q)} 님이 ${this.cnj(c, '을', '를')} 버렸습니다.`);
         this.emit({ fx: 'lose', id: q.id, c });
       }
     }
@@ -575,7 +577,7 @@ export class Game {
       const red = this.C(c).s === 'H' || this.C(c).s === 'D';
       const ok = (r.a === 'red') === red;
       this.emit({ fx: 'flip', id: p.id, cs: [c], pick: c, ok, what: '페요테' });
-      if (ok) { p.hand.push(c); this.log(`페요테 — ${this.nm(p)} 님이 ${r.a === 'red' ? '빨강' : '검정'}을 맞혀 ${this.cn(c)}을(를) 가졌습니다.`); }
+      if (ok) { p.hand.push(c); this.log(`페요테 — ${this.nm(p)} 님이 ${r.a === 'red' ? '빨강' : '검정'}을 맞혀 ${this.cnj(c, '을', '를')} 가졌습니다.`); }
       else { this.toPile(c); this.log(`페요테 — ${this.nm(p)} 님이 틀렸습니다(${this.cn(c)}).`); return; }
     }
   }
@@ -643,7 +645,7 @@ export class Game {
         const c = this.pile.pop();
         p.hand.push(c);
         if (this.phaseDrawn) this.phaseDrawn.push(c);
-        this.log(`${this.nm(p)} 님이 버린 카드에서 ${this.cn(c)}을(를) 가져왔습니다.`);
+        this.log(`${this.nm(p)} 님이 버린 카드에서 ${this.cnj(c, '을', '를')} 가져왔습니다.`);
         this.emit({ fx: 'draw', to: p.id, n: 1, from: 'pile' });
         this.drawTo(p, 1, true);
         return;
@@ -670,7 +672,7 @@ export class Game {
         p.hand.push(c);
         if (this.phaseDrawn) this.phaseDrawn.push(c);
         const red = this.suitOf(c) === 'H' || this.suitOf(c) === 'D';
-        this.log(`${this.nm(p)} 님이 두 번째 장 ${this.cn(c)}을(를) 보여 줍니다${red ? ' — 1장 더!' : '.'}`);
+        this.log(`${this.nm(p)} 님이 두 번째 장 ${this.cnj(c, '을', '를')} 보여 줍니다${red ? ' — 1장 더!' : '.'}`);
         this.emit({ fx: 'show', id: p.id, c });
         if (red) this.drawTo(p, 1, true);
       }
@@ -702,7 +704,7 @@ export class Game {
         if (old) { this.fromTable(p, old); this.toPile(old); }
       }
       p.table.push(c);
-      this.log(`${this.nm(p)} 님이 ${this.cn(c)}을(를) 앞에 놓았습니다.`);
+      this.log(`${this.nm(p)} 님이 ${this.cnj(c, '을', '를')} 앞에 놓았습니다.`);
       this.emit({ fx: 'equip', id: p.id, c });
       return;
     }
@@ -718,11 +720,11 @@ export class Game {
           this.log(`🎯 저격수 — ${this.nm(p)} 님이 뱅! 두 장으로 ${this.nm(T)} 님을 노립니다. 빗나감! 2장이 있어야 막습니다.`, 'atk');
           yield* this.shoot(p, T, 2, '저격');
         } else if (tc != null) {
-          this.log(`🪃 도탄 — ${this.nm(p)} 님이 ${this.nm(T)} 님의 ${this.cn(tc)}을(를) 겨냥합니다.`, 'atk');
+          this.log(`🪃 도탄 — ${this.nm(p)} 님이 ${this.nm(T)} 님의 ${this.cnj(tc, '을', '를')} 겨냥합니다.`, 'atk');
           this.emit({ fx: 'shot', from: p.id, to: T.id });
           if (!(yield* this.dodge(p, T, 1, 'ricochet', 0, tc)) && T.table.includes(tc)) {
             this.fromTable(T, tc); this.toPile(tc);
-            this.log(`${this.nm(T)} 님의 ${this.cn(tc)}이(가) 튕겨 나갔습니다.`);
+            this.log(`${this.nm(T)} 님의 ${this.cnj(tc, '이', '가')} 튕겨 나갔습니다.`);
             this.emit({ fx: 'lose', id: T.id, c: tc });
           }
         } else {
@@ -764,7 +766,7 @@ export class Game {
           else pick = (yield* this.ask({ to: q.id, kind: 'store', cards: [...this.store] })).c;
           this.store.splice(this.store.indexOf(pick), 1);
           q.hand.push(pick);
-          this.log(`${this.nm(q)} 님이 잡화점에서 ${this.cn(pick)}을(를) 가져갔습니다.`);
+          this.log(`${this.nm(q)} 님이 잡화점에서 ${this.cnj(pick, '을', '를')} 가져갔습니다.`);
           this.emit({ fx: 'take', id: q.id, c: pick });
         }
         for (const x of this.store) this.toPile(x);
@@ -779,11 +781,11 @@ export class Game {
         else { got = tc; this.fromTable(T, tc); }
         if (k === 'panic') {
           p.hand.push(got);
-          this.log(`${this.nm(p)} 님이 ${this.nm(T)} 님에게서 ${tc === 'hand' ? '손의 카드 1장' : this.cn(got)}을(를) 빼앗았습니다.`, 'atk');
+          this.log(`${this.nm(p)} 님이 ${this.nm(T)} 님에게서 ${tc === 'hand' ? '손의 카드 1장을' : this.cnj(got, '을', '를')} 빼앗았습니다.`, 'atk');
           this.emit({ fx: 'steal', from: T.id, to: p.id, c: tc === 'hand' ? null : got });
         } else {
           this.toPile(got);
-          this.log(`${this.nm(p)} 님의 캣 벌로우 — ${this.nm(T)} 님이 ${this.cn(got)}을(를) 버렸습니다.`, 'atk');
+          this.log(`${this.nm(p)} 님의 캣 벌로우 — ${this.nm(T)} 님이 ${this.cnj(got, '을', '를')} 버렸습니다.`, 'atk');
           this.emit({ fx: 'lose', id: T.id, c: got });
         }
         break;
@@ -1027,6 +1029,9 @@ export class Game {
     return v;
   }
 }
+
+/** 조사 — 받침이 있으면 a, 없으면 b */
+export function josa(w, a, b) { const ch = String(w).charCodeAt(String(w).length - 1); return (ch >= 0xac00 && ch <= 0xd7a3 && (ch - 0xac00) % 28) ? a : b; }
 
 export function roleKo(r) { return { sheriff: '보안관', deputy: '부관', outlaw: '무법자', renegade: '배신자' }[r] || r; }
 
