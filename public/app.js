@@ -21,6 +21,8 @@ const ROLE_IMG = r => `/img/roles/${r}.webp`;
 const CARD_IMG = k => `/img/cards/${k}.webp`;
 const ICON = n => `/img/ui/icons/${n}.webp`;
 const ROLE_EMO = { sheriff: '⭐', deputy: '🔰', outlaw: '💀', renegade: '🎭' };
+const ROLE_ICON = { sheriff: 'star_sheriff', deputy: 'star_deputy', outlaw: 'outlaw', renegade: 'renegade' };
+const roleImg = (r, cls = 'ri') => `<img class="${cls}" src="${ICON(ROLE_ICON[r])}" alt="${ROLES[r].name}">`;
 const EMO = ['🤠', '😏', '🤔', '😱', '😤', '👏'];
 /** 연출 한 가지가 걸리는 시간 — src/hub.js 의 FX_MS 와 같아야 한다 */
 const FX_MS = {
@@ -426,7 +428,7 @@ function renderIntro() {
   const left = Math.max(0, Math.round((I.ends - (Date.now() + skew)) / 1000));
   $('#iFoot').textContent = I.myPick || isSpec() ? `다른 사람들을 기다리는 중… (${I.picked.length}/${S.players.length})`
     : I.mode === 'pick' ? `${left}초 안에 고르세요 — 고르지 않으면 왼쪽 인물로 정해져요` : `${left}초 뒤에 저절로 시작해요`;
-  $('#iWho').innerHTML = S.players.map(p => `<span class="iw ${I.picked.includes(p.id) ? 'done' : ''}">${p.id === I.sheriff ? '⭐ ' : ''}${esc(p.name)}${I.picked.includes(p.id) ? ' ✓' : ''}</span>`).join('');
+  $('#iWho').innerHTML = S.players.map(p => `<span class="iw ${I.picked.includes(p.id) ? 'done' : ''}">${p.id === I.sheriff ? roleImg('sheriff', 'ri sm') + ' ' : ''}${esc(p.name)}${I.picked.includes(p.id) ? ' ✓' : ''}</span>`).join('');
 }
 $('#iChars').addEventListener('click', e => {
   const b = e.target.closest('.char-card');
@@ -494,7 +496,7 @@ function hpHTML(p) {
 }
 function roleBadge(p) {
   if (!p.role) return '<span class="rb unk" title="정체 모름">?</span>';
-  return `<span class="rb ${p.role}" title="${ROLES[p.role].name}">${ROLE_EMO[p.role]}</span>`;
+  return `<span class="rb ${p.role}" title="${ROLES[p.role].name}">${roleImg(p.role)}</span>`;
 }
 const RING_R = 37, RING_C = 2 * Math.PI * RING_R;
 const ringSVG = `<svg class="ring" viewBox="0 0 80 80"><circle class="fg" cx="40" cy="40" r="${RING_R}" stroke-dasharray="${RING_C}" stroke-dashoffset="${RING_C}"/></svg>`;
@@ -512,7 +514,7 @@ function seatHTML(p) {
       <b class="o-name">${p.status === 'ghost' ? '👻 ' : ''}${esc(p.name)}${p.bot ? ' <i class="otag">봇</i>' : ''}${pl && !pl.bot && !pl.connected ? ' <i class="otag off">끊김</i>' : ''}</b>
       <span class="o-char" data-char="${p.char}">${CHARS[p.char].name}${!p.alive && p.role ? ' · ' + ROLES[p.role].name : ''}</span>
       ${hpHTML(p)}
-      <span class="o-meta"><span class="hc" title="손에 든 카드">🂠 ${p.hand}</span>${p.dist != null && p.id !== me ? `<span class="ds ${inRange ? 'in' : ''}" title="내가 보는 거리${inRange ? ' — 사거리 안' : ''}">↔ ${p.dist}</span>` : ''}<span class="rg" title="사거리">🎯 ${p.range}</span></span>
+      <span class="o-meta"><span class="hc" title="손에 든 카드"><img class="mi" src="${ICON('cards')}" alt="">${p.hand}</span>${p.dist != null && p.id !== me ? `<span class="ds ${inRange ? 'in' : ''}" title="내가 보는 거리${inRange ? ' — 사거리 안' : ''}"><img class="mi" src="${ICON('crosshair')}" alt="">${p.dist}</span>` : ''}<span class="rg" title="사거리"><img class="mi" src="${ICON('revolver')}" alt="">${p.range}</span></span>
     </div>
     <div class="o-tbl">${p.table.map(c => cardHTML(c, 'mini' + (aims.has(c.id) ? ' aim' : ''))).join('')}</div>
     <div class="think">생각 중…</div>
@@ -591,12 +593,12 @@ function renderMe() {
   box.className = 'me' + (p.id === g.turn && !g.over ? ' turn' : '') + (!p.alive ? ' dead' : '') + (g.req && g.req.to === me && !g.over ? ' asked' : '') + (targets().has(me) ? ' target' : '');
   const bangUsed = g.turn === me && g.bangs && p.char !== 'willy' && !p.table.some(c => c.k === 'volcanic');
   box.innerHTML = `
-    <div class="me-card por" data-char="${p.char}"><img src="${CHAR_IMG(p.char)}" alt="">${ringSVG}<span class="rb ${p.role}">${ROLE_EMO[p.role]}</span></div>
+    <div class="me-card por" data-char="${p.char}"><img src="${CHAR_IMG(p.char)}" alt="">${ringSVG}<span class="rb ${p.role}">${roleImg(p.role)}</span></div>
     <div class="me-info">
       <b class="me-name">${esc(p.name)} <span class="me-role ${p.role}">${ROLES[p.role].name}</span></b>
       <span class="me-char" data-char="${p.char}"><b>${CHARS[p.char].name}</b> — ${esc(CHARS[p.char].desc)}</span>
       ${hpHTML(p)}
-      <span class="o-meta"><span class="rg">🎯 사거리 ${p.range}</span>${bangUsed ? '<span class="used">뱅! 사용함</span>' : ''}</span>
+      <span class="o-meta"><span class="rg"><img class="mi" src="${ICON('revolver')}" alt="">사거리 ${p.range}</span><span class="hc"><img class="mi" src="${ICON('cards')}" alt="">${G().me.hand.length}</span>${bangUsed ? '<span class="used">뱅! 사용함</span>' : ''}</span>
     </div>
     <div class="me-tbl">${p.table.map(c => cardHTML(c, 'mini')).join('')}</div>`;
 }
@@ -809,7 +811,7 @@ function renderAct() {
         } else {
           const lim = g.bangLimit;
           text = `<b>당신의 차례</b> — 카드를 내거나 턴을 끝내세요<small>빛나는 카드를 누르면 고르고, 한 번 더 누르면 씁니다 · ${lim >= 99 ? '뱅! 제한 없음' : lim === 0 ? '설교 — 뱅!을 쓸 수 없어요' : g.bangs >= lim ? '이번 턴 뱅!을 다 썼어요' : `뱅!은 한 턴에 ${lim}장`}${g.me.mustPlay != null ? ' · <b>서부의 법 — 주황빛 카드를 꼭 내야 해요</b>' : ''}</small>`;
-          if (p.char === 'sid' && p.hp < p.max && g.me.hand.length >= 2) B('시드: 2장 버리고 +1', () => { mode = 'sid'; sel = []; renderGame(); }, '');
+          if (p.char === 'sid' && g.event !== 'hangover' && p.hp < p.max && g.me.hand.length >= 2) B('시드: 2장 버리고 +1', () => { mode = 'sid'; sel = []; renderGame(); }, '');
         }
         B('턴 끝내기', () => act({ a: 'end' }), c ? '' : 'red');
         break;
@@ -847,7 +849,7 @@ function renderAct() {
         }
         const beer = g.me.hand.find(c => c.k === 'beer');
         if (beer && g.players.filter(x => x.alive).length > 2) B('🍺 맥주 마시기', () => act({ a: 'beer', c: beer.id }), 'red');
-        if (p.char === 'sid' && g.me.hand.length >= 2) B('시드: 2장 버리고 +1', () => { mode = 'sid'; sel = []; renderGame(); }, '');
+        if (p.char === 'sid' && g.event !== 'hangover' && g.me.hand.length >= 2) B('시드: 2장 버리고 +1', () => { mode = 'sid'; sel = []; renderGame(); }, '');
         B('쓰러지기', () => act({ a: 'die' }), 'dark');
         break;
       }
@@ -969,7 +971,9 @@ function tracer(a, b) {
   e.style.transform = `rotate(${Math.atan2(dy, dx)}rad)`;
   $('#fx').appendChild(e);
   setTimeout(() => e.remove(), 500);
-  fxEl('flash', '', p, 300);
+  const f = fxEl('muzzle', '', p, 420);
+  f.style.transform = `translate(-10%, -50%) rotate(${Math.atan2(dy, dx)}rad)`;
+  setTimeout(() => fxEl('smoke', '', p, 1200), 120);
 }
 function shake(id) { const el = id === me ? $('#me') : $(`#opps .opp[data-pid="${id}"]`); if (el) { el.classList.remove('shake'); void el.offsetWidth; el.classList.add('shake'); } }
 /** 카드 한 장이 a 에서 b 로 날아간다 */
@@ -1008,9 +1012,12 @@ async function playFx(list) {
       case 'hurt': fxEl('dmg', '−' + e.n, anchor(e.id)); shake(e.id); sfx.hurt(); break;
       case 'heal': fxEl('heal', '+1', anchor(e.id)); sfx.heal(); break;
       case 'dodge': fxEl('word miss', '빗나감!', anchor(e.id), 1100); sfx.miss(); break;
-      case 'spend': case 'discard': for (const c of e.cs) flyCard(DECK[c], e.id, 'pile'); sfx.card(); break;
+      case 'spend': case 'discard':
+        if (e.deck) { for (let i = 0; i < Math.min(e.n || 1, 3); i++) setTimeout(() => flyCard(null, e.id, 'deck'), i * 100); }
+        else for (const c of e.cs) flyCard(DECK[c], e.id, 'pile');
+        sfx.card(); break;
       case 'flip': showFlip(e); sfx.card(); break;
-      case 'boom': fxEl('burst boom', '<b>쾅!</b>', anchor(e.id), 1500); shake(e.id); sfx.boom(); break;
+      case 'boom': fxEl('boom', '<b>쾅!</b>', anchor(e.id), 1500); shake(e.id); sfx.boom(); break;
       case 'die': fxEl('skull', '☠', anchor(e.id), 2200); banner(`${esc(nameOf(e.id))} 님이 쓰러졌습니다 — ${ROLES[e.role].name}`, 'die'); sfx.die(); break;
       case 'jailed': fxEl('word', '감옥에서 턴을 거름', anchor(e.id), 1300); break;
       case 'gatling': banner('기관총!', 'big'); sfx.shot(); setTimeout(sfx.shot, 140); setTimeout(sfx.shot, 280); break;
@@ -1041,7 +1048,7 @@ function showEvent(k) {
 /** 이번 판 역할 구성 — "보안관 1 · 부관 1 · 무법자 2 · 배신자 1" */
 function roleMix(n) {
   const c = {}; for (const r of ROLES_BY_N[n] || []) c[r] = (c[r] || 0) + 1;
-  return ['sheriff', 'deputy', 'outlaw', 'renegade'].filter(r => c[r]).map(r => `${ROLE_EMO[r]} ${ROLES[r].name} ${c[r]}`).join(' · ');
+  return ['sheriff', 'deputy', 'outlaw', 'renegade'].filter(r => c[r]).map(r => `${roleImg(r, 'ri sm')} ${ROLES[r].name} ${c[r]}`).join(' · ');
 }
 function showGate(ms) {
   gateShown = true;
@@ -1081,7 +1088,7 @@ function showOver() {
   $('#oTitle').textContent = T[0];
   $('#oSub').textContent = me != null ? (win.has(me) ? '🏆 당신이 이겼어요! ' : '아쉽게 졌어요. ') + T[1] : T[1];
   $('#oFinal').innerHTML = g.players.map(p => `<li class="${win.has(p.id) ? 'win' : ''} ${p.alive ? '' : 'dead'}">
-    <img src="${CHAR_IMG(p.char)}" alt=""><span><b>${esc(p.name)}</b><small>${ROLE_EMO[p.role]} ${ROLES[p.role].name} · ${CHARS[p.char].name}</small><small>${p.alive ? '살아남음' : '☠ 쓰러짐'}</small></span></li>`).join('');
+    <img src="${CHAR_IMG(p.char)}" alt=""><span><b>${roleImg(p.role, 'ri sm')} ${esc(p.name)}</b><small>${ROLES[p.role].name} · ${CHARS[p.char].name}</small><small>${p.alive ? '살아남음' : '☠ 쓰러짐'}</small></span></li>`).join('');
   const host = !isSpec() && S.hostId === me;
   $('#bAgain').hidden = !host;
   $('#oWait').textContent = host ? '' : '방장이 다음 판을 고르는 중…';
@@ -1155,7 +1162,7 @@ function tipFor(id) { if (matchMedia('(hover: none)').matches) toast(`${KINDS[DE
 const HELP = {
   basic: () => `
     <p class="lead">정체를 숨긴 총잡이들이 서로를 쏘는 서부 카드게임. 4~7명이 한 테이블에 둘러앉는다.</p>
-    <div class="roles-strip">${Object.keys(ROLES).map(r => `<figure><img src="${ROLE_IMG(r)}" alt=""><figcaption>${ROLE_EMO[r]} <b>${ROLES[r].name}</b><small>${ROLES[r].goal}</small></figcaption></figure>`).join('')}</div>
+    <div class="roles-strip">${Object.keys(ROLES).map(r => `<figure><img src="${ROLE_IMG(r)}" alt=""><figcaption>${roleImg(r, 'ri sm')} <b>${ROLES[r].name}</b><small>${ROLES[r].goal}</small></figcaption></figure>`).join('')}</div>
     <p>역할은 몰래 받는다. <b>보안관만 정체를 드러내고</b>, 생명이 1 더 많으며 먼저 시작한다. 4명: 보안관·배신자·무법자 2 / 5명: +부관 / 6명: +무법자 / 7명: +부관</p>
     <h4>내 차례</h4>
     <ol><li><b>뽑기</b> — 카드 2장을 뽑는다.</li><li><b>내기</b> — 원하는 만큼 카드를 낸다. 단, <b>뱅!은 한 턴에 한 장</b>. 앞에 놓는 파란 카드는 같은 것을 두 장 놓을 수 없고, 무기는 하나만.</li><li><b>버리기</b> — 손 카드가 남은 생명보다 많으면 그만큼 버린다.</li></ol>

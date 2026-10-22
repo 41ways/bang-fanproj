@@ -572,3 +572,42 @@ body.spec #bEmo { display: none; }
 .help-ev { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px; }
 .help-ev div { font-size: 13.5px; line-height: 1.45; } .help-ev b { color: var(--red); }
 @media (max-width: 760px) { .ecard { width: 54px; height: 76px; } .ecard b { font-size: 9px; } .ecard small { display: none; } .ecard .ek { font-size: 16px; margin-top: 4px; } }
+
+/* ── 제미나이 그림 아이콘 · 연출 · 게시판 ── */
+.hp i { width: 9px; height: 22px; background: url(/img/ui/icons/bullet.webp) center/auto 100% no-repeat; box-shadow: none; border-radius: 0; transform: rotate(10deg); filter: drop-shadow(0 1px 1px rgba(0, 0, 0, .4)); }
+.hp i.lost { background: url(/img/ui/icons/bullet.webp) center/auto 100% no-repeat; box-shadow: none; filter: grayscale(1) brightness(.6); opacity: .28; }
+.char-card .hp i { width: 12px; height: 28px; }
+.rb { background: radial-gradient(circle at 40% 35%, #fff4dc, #c9ac78) !important; }
+.rb .ri { width: 84%; height: 84%; object-fit: contain; filter: drop-shadow(0 1px 1px rgba(0, 0, 0, .5)); }
+.ri.sm { width: 1.2em; height: 1.2em; object-fit: contain; vertical-align: -.25em; }
+.mi { width: 1.25em; height: 1.25em; object-fit: contain; vertical-align: -.3em; margin-right: 2px; }
+.o-meta span { display: inline-flex; align-items: center; gap: 1px; }
+.chat-btn img { width: 34px; height: 34px; object-fit: contain; }
+.fx.burst::before { background: url(/img/ui/fx/bang_burst.webp) center/contain no-repeat; clip-path: none; filter: drop-shadow(0 4px 6px rgba(0, 0, 0, .55)); }
+.fx.burst { width: 170px; height: 130px; }
+.fx.boom { width: 230px; height: 200px; display: grid; place-items: center; background: url(/img/ui/fx/explosion_cloud.webp) center/contain no-repeat; animation: burst 1.5s ease-out forwards; }
+.fx.boom b { font: 700 40px var(--kr); color: #fff; -webkit-text-stroke: 2px #5b1a0b; text-shadow: 0 3px 0 #8e2410; }
+.fx.muzzle { width: 90px; height: 50px; transform-origin: 0 50%; background: url(/img/ui/fx/muzzle_flash.webp) left center/contain no-repeat; animation: muzzle .42s ease-out forwards; }
+@keyframes muzzle { 0% { opacity: 1; } 100% { opacity: 0; } }
+.fx.smoke { width: 80px; height: 80px; background: url(/img/ui/fx/smoke_puff.webp) center/contain no-repeat; animation: smoke 1.2s ease-out forwards; }
+@keyframes smoke { 0% { opacity: .0; transform: translate(-50%, -50%) scale(.4); } 20% { opacity: .8; } 100% { opacity: 0; transform: translate(-50%, -110%) scale(1.4); } }
+.board { background: none; box-shadow: none; border: 36px solid transparent; border-image: url(/img/ui/board.webp) 100 fill / 36px / 0 stretch; filter: drop-shadow(0 14px 26px rgba(0, 0, 0, .6)); border-radius: 0; }
+.board-in { padding: 8px 10px; }
+.lobby .board-in { padding: 6px 8px; }
+.room-empty, .online, .board-title span { color: #3c2512; }
+.board-title { color: #2a170a; text-shadow: 0 1px 0 rgba(255, 235, 200, .5); }
+.code-box small, .opt-t, .hint, .wait, .rules-line, .opt-d { color: #3c2512; }
+.seg { background: rgba(60, 38, 18, .22); }
+.lobby-head { border-bottom-color: rgba(60, 38, 18, .45); }
+@media (max-width: 760px) { .board { border-width: 22px; border-image-width: 22px; } }
+/* 게시판 위 글은 종이쪽지에 써서 꽂는다 — 코르크 위에서도 잘 읽히게 */
+.board-title { align-self: flex-start; position: relative; background: #fff4dc url(/img/paper.jpg) center/220px; padding: 6px 16px 6px 18px; box-shadow: 0 3px 6px rgba(40, 20, 5, .4); transform: rotate(-1.2deg); }
+.board-title::before { content: ""; position: absolute; top: -5px; left: 50%; width: 11px; height: 11px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #e66a4c, #7a1d10); box-shadow: 0 2px 2px rgba(0, 0, 0, .4); }
+.online { align-self: flex-start; margin: 8px 0 12px; background: rgba(255, 244, 220, .85); padding: 2px 10px; border-radius: 3px; font-size: 12.5px; }
+.online:empty { display: none; }
+.room-empty { background: #fff4dc url(/img/paper.jpg) center/220px; padding: 22px 26px; box-shadow: 0 4px 10px rgba(40, 20, 5, .4); transform: rotate(.8deg); position: relative; max-width: 360px; }
+.room-empty::before { content: ""; position: absolute; top: -5px; left: 50%; width: 11px; height: 11px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #e3c36f, #7a5418); box-shadow: 0 2px 2px rgba(0, 0, 0, .4); }
+.lobby .lobby-head, .lobby .host-box, .lobby .wait, .lobby .rules-line, .lobby .spec-note { background: rgba(255, 244, 220, .88); border-radius: 6px; padding: 10px 14px; box-shadow: 0 3px 8px rgba(40, 20, 5, .3); }
+.lobby .lobby-head { border-bottom: 0; }
+.lobby .rules-line { margin-top: 10px; padding: 6px 12px; }
+.seat-card.free { background: rgba(255, 244, 220, .6); border-color: rgba(60, 38, 18, .55); }

@@ -128,8 +128,10 @@ export function decide(g, pid) {
     case 'liquor': return me.hp < me.max && (me.hp <= 2 || me.hand.length >= me.hp + 2) ? { a: 'heal' } : { a: 'draw' };
     case 'peyote': {
       // 지금까지 나온 카드로 빨강·검정 남은 수를 어림한다
+      // 보이는 카드(버린 카드 · 앞에 놓인 카드 · 내 손)를 빼고 남은 빨강·검정을 센다 — 더미 속은 보지 않는다
+      const seen = new Set([...g.pile, ...me.hand, ...g.players.flatMap(o => o.table)]);
       let red = 0, black = 0;
-      for (const id of g.deck) (g.C(id).s === 'H' || g.C(id).s === 'D') ? red++ : black++;
+      for (const c of g.cards) if (!seen.has(c.id)) (c.s === 'H' || c.s === 'D') ? red++ : black++;
       return { a: red >= black ? 'red' : 'black' };
     }
     case 'ranch': {

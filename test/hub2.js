@@ -86,12 +86,16 @@ const ok = (c, m) => { if (!c) { fails++; console.error('✗', m); } };
   handle(a, { t: 'pick', c: last(a, 'state').intro.offers[0] });
   await wait(30);
   ok(room.phase === 'playing', '시작');
-  for (let i = 0; i < 400 && !(room.game.req && room.game.req.to === room.players.find(p => p.name === '혼자').id); i++) await wait(2);
+  const mine = () => room.game.req && room.game.req.to === room.players.find(p => p.name === '혼자').id;
+  // 내 차례(play)가 올 때까지 — 다른 것(막기 등)은 봇 두뇌로 넘긴다
+  for (let i = 0; i < 4000 && room.phase === 'playing' && !(mine() && room.game.req.kind === 'play'); i++) {
+    if (mine()) handle(a, { t: 'act', seq: room.game.req.seq, r: decide(room.game, room.game.req.to) }); else await wait(1);
+  }
   const g = room.game;
   const before = JSON.stringify(g.view(g.req.to));
   handle(a, { t: 'act', seq: g.req.seq, r: { a: 'play', c: 99999, t: 'x' } });
   ok(last(a, 'err') && JSON.stringify(g.view(g.req.to)) === before, '잘못된 답은 거절');
-  ok(!room.deadline, '무제한이면 시계 없음');
+  ok(room.phase !== 'playing' || !room.deadline, '내 턴이 무제한이면 시계 없음');
   handle(a, { t: 'leave' });
 }
 

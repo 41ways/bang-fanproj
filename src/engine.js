@@ -269,6 +269,10 @@ export class Game {
     const asBang = x => this.isK(x, 'bang') || (this.isK(x, 'missed') && this.ab(p, 'calamity'));
     let k = this.C(c).k;
     if (k === 'missed' && this.ab(p, 'calamity')) k = 'bang';
+    // 두 번째 카드(저격수)는 뱅!에만, 대상 카드는 뱅!(도탄) · 강탈 · 캣 벌로우에만 — 조작된 답을 막는다
+    if (c2 != null && k !== 'bang') return '잘못된 답';
+    if (tc != null && k !== 'bang' && k !== 'panic' && k !== 'catbalou') return '잘못된 답';
+    if (t != null && !this.P(t)) return '대상을 고르세요';
     const def = KINDS[k];
     const T = t != null ? this.P(t) : null;
     if (k === 'missed') return '빗나감!은 남의 턴에 막을 때만 냅니다';
@@ -430,7 +434,8 @@ export class Game {
       }
     }
 
-    /* 1단계 — 뽑기 */
+    /* 1단계 — 뽑기 (그 전에 턴 시작 효과로 손이 비었으면 수지가 먼저 뽑는다) */
+    this.suzy();
     let skip = false;
     if (this.ev('liquor') && p.status !== 'ghost') {
       const r = yield* this.ask({ to: p.id, kind: 'liquor' });
@@ -483,7 +488,7 @@ export class Game {
       if (this.ev('mine')) {
         for (const c of r.cs) { this.fromHand(p, c); this.deck.push(c); }
         this.log(`버려진 광산 — ${this.nm(p)} 님이 카드 ${n}장을 더미 위에 엎어 버렸습니다.`);
-        this.emit({ fx: 'discard', id: p.id, cs: r.cs, deck: true });
+        this.emit({ fx: 'discard', id: p.id, n: r.cs.length, deck: true });
       } else {
         for (const c of r.cs) { this.fromHand(p, c); this.toPile(c); }
         this.log(`${this.nm(p)} 님이 카드 ${n}장을 버렸습니다.`);
@@ -658,7 +663,7 @@ export class Game {
         const r = yield* this.ask({ to: p.id, kind: 'kit', cards: three });
         this.limbo = [];
         for (const c of three) if (c !== r.c) { p.hand.push(c); if (this.phaseDrawn) this.phaseDrawn.push(c); }
-        this.deck.push(r.c);
+        if (this.ev('mine')) this.pile.push(r.c); else this.deck.push(r.c);
         this.log(`${this.nm(p)} 님이 3장을 보고 2장을 골랐습니다.`);
       } else { p.hand.push(...three); if (this.phaseDrawn) this.phaseDrawn.push(...three); }
       this.emit({ fx: 'draw', to: p.id, n: Math.min(2, three.length) });
@@ -709,7 +714,7 @@ export class Game {
     }
 
     this.toPile(c);
-    if (c2 != null) { this.fromHand(p, c2); this.toPile(c2); }
+    if (c2 != null && this.fromHand(p, c2)) this.toPile(c2);
     this.emit({ fx: 'play', id: p.id, c, to: T ? T.id : null });
 
     switch (k) {
@@ -820,10 +825,8 @@ export class Game {
         let cur = T, oth = p;
         for (;;) {
           const ok = this.ab(cur, 'calamity') ? ['bang', 'missed'] : ['bang'];
-          // 설교 중에는 차례인 사람이 결투에서 뱅!을 낼 수 없어 저절로 진다(BGA)
-          const sermon = this.ev('sermon') && cur.id === this.turn;
-          if (sermon) this.log(`설교 — ${this.nm(cur)} 님은 자기 턴에 뱅!을 쓸 수 없어 결투에서 집니다.`);
-          const r = cur.hand.length && !sermon
+          // 설교 중에도 결투에서 뱅!을 버리는 것은 된다 — "내는" 것이 아니라 "버리는" 것(FAQ Q06 · BGA Duel.php)
+          const r = cur.hand.length
             ? yield* this.ask({ to: cur.id, kind: 'react', why: 'duel', from: oth.id, need: 1, ok })
             : { a: 'take' };
           // 결투를 건 사람이 지면 아무도 탓하지 않는다 — 현상금도, 엘 그링고도 없다(FAQ Q21 · Q23)
@@ -872,6 +875,7 @@ export class Game {
         this.emit({ fx: 'dodge', id: T.id });
         if (need <= 0) return true;
         this.log(`하지만 ${this.nm(T)} 님은 빗나감!이 ${need}장 더 필요합니다.`);
+        this.suzy();
         continue;
       }
       return false;

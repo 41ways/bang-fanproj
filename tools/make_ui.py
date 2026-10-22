@@ -81,11 +81,17 @@ def blobs(alpha, n, min_px=40, merge_pad=30):
             continue
         s = sl[j - 1]
         x0, y0, x1, y1 = s[1].start, s[0].start, s[1].stop, s[0].stop
+        # 가장 가까운 큰 덩어리(상자 사이 거리)가 merge_pad 안이면 합친다 (불똥·연기 조각 등)
+        best, bd = None, 1e9
         for i in main:
             X0, Y0, X1, Y1 = boxes[i]
-            if x0 >= X0 - merge_pad and y0 >= Y0 - merge_pad and x1 <= X1 + merge_pad and y1 <= Y1 + merge_pad:
-                groups[i].append(j)
-                break
+            dx = max(X0 - x1, x0 - X1, 0)
+            dy = max(Y0 - y1, y0 - Y1, 0)
+            dd = max(dx, dy)
+            if dd < bd:
+                best, bd = i, dd
+        if best is not None and bd <= merge_pad:
+            groups[best].append(j)
     out = []
     for i in main:
         mask = np.isin(lab, groups[i])
@@ -171,6 +177,30 @@ def btn():
 def poster():
     d = sheet('poster_a', ['poster'], 1, fill_holes=True)
     save_webp(d['poster'], 'poster.webp')
+
+
+ICONS = ['bullet', 'star_sheriff', 'star_deputy', 'outlaw', 'renegade', 'revolver', 'cards', 'chat',
+         'hourglass', 'dynamite', 'horseshoe', 'crosshair']
+
+
+@step
+def icons():
+    d = sheet('icons_a', ICONS, 3)
+    for k, im in d.items():
+        save_webp(square(im, 128, 0.94), f'icons/{k}.webp')
+
+
+@step
+def fx():
+    d = sheet('fx_a', ['bang_burst', 'muzzle_flash', 'explosion_cloud', 'smoke_puff'], 2, fill_holes=True)
+    for k, im in d.items():
+        save_webp(square(im, 512, 0.96), f'fx/{k}.webp')
+
+
+@step
+def board():
+    d = sheet('board_a', ['board'], 1, fill_holes=True)
+    save_webp(d['board'], 'board.webp')
 
 
 if __name__ == '__main__':

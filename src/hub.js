@@ -234,6 +234,7 @@ function act(room, p, r, seq) {
   if (!g || room.phase !== 'playing') return;
   if (!g.req || g.req.to !== p.id) return send(p.ws, { t: 'err', msg: '지금은 내 차례가 아니에요.' });
   if (seq !== g.req.seq) return;                       // 한 발 늦은 답
+  if (!r || typeof r !== 'object') return;
   p.afk = false;
   try { g.answer(p.id, r); }
   catch (e) { return send(p.ws, { t: 'err', msg: String(e.message || e) }); }
@@ -265,7 +266,10 @@ function schedule(room) {
   const run = fn => () => {
     room.timers.act = null;
     if (room.game !== g || !g.req || g.req.seq !== seq) return;
-    try { fn(); } catch (e) { console.error('auto', e); try { g.answer(q.to, decide(g, q.to)); } catch (_) { g.answer(q.to, { a: q.kind === 'play' ? 'end' : 'take' }); } }
+    try { fn(); } catch (e) {
+      console.error('auto', e);
+      try { g.answer(q.to, decide(g, q.to)); } catch (_) { try { g.answer(q.to, { a: q.kind === 'play' ? 'end' : 'take' }); } catch (e2) { console.error('stuck', e2); } }
+    }
     after(room);
   };
   const who = autoOf(room, q.to);

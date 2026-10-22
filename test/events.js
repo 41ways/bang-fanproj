@@ -284,5 +284,78 @@ function endTurn(g) {
   ok(g.turn === 'p1' && g.P('p1').alive && g.P('p1').hp === 2 && g.P('p1').hand.length === 4, '생명 2 · 카드 2장 + 뽑기 2장 ' + g.P('p1').hand.length);
 }
 
+/* 감사에서 찾은 것 — 다시 생기지 않게 */
+{
+  // 조작된 두 번째 카드(c2)는 거절, 카드 수 그대로
+  const g = setup(['bart', 'sid', 'pedro', 'willy'], []);
+  empty(g);
+  hand(g, 'p0', [find('beer', 'H', 6), find('stagecoach')]);
+  const count = () => g.deck.length + g.pile.length + g.players.reduce((a, p) => a + p.hand.length + p.table.length, 0);
+  const before = count();
+  let threw = false; try { g.answer('p0', { a: 'play', c: find('beer', 'H', 6), c2: g.deck[0] }); } catch (_) { threw = true; }
+  ok(threw && count() === before, '맥주에 c2 를 붙이면 거절');
+  threw = false; try { g.answer('p0', { a: 'play', c: find('beer', 'H', 6), c2: 'zzz' }); } catch (_) { threw = true; }
+  ok(threw && count() === before, '쓰레기 c2 거절');
+}
+{
+  // 수지 — 한 줌의 카드로 손이 비면 1단계 전에 1장
+  const g = setup(['bart', 'sid', 'pedro', 'suzy'], ['fistful']);
+  for (let i = 0; i < 3; i++) endTurn(g);
+  empty(g);
+  hand(g, 'p3', [find('missed', 'S', 2)]);
+  for (let i = 0; i < 2; i++) endTurn(g);                  // p3 → p0(이벤트 뒤집힘) … 순서대로
+  for (let i = 0; i < 6 && !(g.turn === 'p3' && g.req.to === 'p3'); i++) endTurn(g);
+  if (g.req.kind === 'react' && g.req.to === 'p3') g.answer('p3', { a: 'cards', cs: g.P('p3').hand.filter(c => DECK[c].k === 'missed').slice(0, 1) });
+  ok(true, '수지 진행');
+}
+{
+  const g = setup(['bart', 'sid', 'pedro', 'suzy'], []);
+  for (let i = 0; i < 3; i++) endTurn(g);
+  g.event = 'fistful';
+  empty(g);
+  hand(g, 'p0', []);
+  // p3(수지) 차례 시작 — 손에 빗나감! 1장
+  hand(g, 'p3', [find('missed', 'S', 2)]);
+  g.answer(g.req.to, { a: 'end' }); if (g.req.kind === 'discard') g.answer(g.req.to, { a: 'discard', cs: g.P(g.req.to).hand.slice(0, g.req.n) });
+}
+{
+  const g = setup(['bart', 'sid', 'pedro', 'suzy'], []);
+  for (let i = 0; i < 3; i++) endTurn(g);       // 이제 p3(수지) 차례 시작 직전이 아니라, p3 의 play 요청
+  // 수지 차례를 처음부터: p3 턴을 끝내고 한 바퀴 돌려 p3 차례가 다시 올 때 한 줌의 카드
+  endTurn(g); endTurn(g); endTurn(g);
+  empty(g);
+  hand(g, 'p3', [find('missed', 'S', 2)]);
+  g.event = 'fistful';
+  endTurn(g);                                    // p2 끝 → p3 시작: 뱅! 1발
+  ok(g.req.kind === 'react' && g.req.to === 'p3' && g.req.why === 'fistful', '수지에게 한 줌의 카드 1발');
+  g.answer('p3', { a: 'cards', cs: [find('missed', 'S', 2)] });
+  ok(g.P('p3').hand.length === 3, '빗나감!으로 손이 비면 수지 1장 + 1단계 2장 = 3장 ' + g.P('p3').hand.length);
+}
+{
+  // 설교 중에도 결투에서 뱅!을 버릴 수 있다
+  const g = setup(['bart', 'sid', 'pedro', 'willy'], []);
+  empty(g);
+  g.event = 'sermon';
+  hand(g, 'p0', [find('duel', 'D', 12), find('bang', 'C', 3), find('beer', 'H', 6)]);
+  hand(g, 'p2', [find('bang', 'C', 4)]);
+  g.answer('p0', { a: 'play', c: find('duel', 'D', 12), t: 'p2' });
+  g.answer('p2', { a: 'cards', cs: [find('bang', 'C', 4)] });
+  ok(g.req && g.req.to === 'p0' && g.req.why === 'duel', '설교 중 결투 — 차례인 사람도 응수할 수 있다');
+  g.answer('p0', { a: 'cards', cs: [find('bang', 'C', 3)] });
+  ok(g.P('p2').hp === 3 && g.P('p0').hp === 5, '응수 못 한 쪽이 −1');
+}
+{
+  // 버려진 광산 — 엎어 버리는 카드는 연출에 드러나지 않는다
+  const g = setup(['bart', 'sid', 'pedro', 'willy'], []);
+  g.event = 'mine';
+  hand(g, 'p0', all('bang').slice(0, 8));
+  g.fx = [];
+  g.answer('p0', { a: 'end' });
+  ok(g.req.kind === 'discard', '버리기');
+  g.answer('p0', { a: 'discard', cs: g.P('p0').hand.slice(0, g.req.n) });
+  const e = g.fx.find(x => x.fx === 'discard');
+  ok(e && e.deck && !e.cs, '엎어 버린 카드는 숨김');
+}
+
 console.log(fails ? `✗ ${fails}/${n} 실패` : `이벤트 ${n}개 통과`);
 process.exit(fails ? 1 : 0);

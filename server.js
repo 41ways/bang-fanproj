@@ -36,4 +36,6 @@ wss.on('connection', ws => {
   ws.on('close', () => disconnect(ws));
 });
 setInterval(() => sweepRooms(), 20_000).unref();
+// 한 방에서 예상 못 한 오류가 나도 서버 전체가 죽지 않게
+process.on('uncaughtException', e => console.error('uncaught', e));
 server.listen(PORT, () => console.log(`뱅! http://localhost:${PORT}`));

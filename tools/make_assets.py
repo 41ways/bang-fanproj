@@ -35,9 +35,19 @@ GRIDS = {
     'cards5': ['cards/dynamite', 'cards/volcanic', 'cards/schofield', 'cards/remington'],
     'cards6': ['cards/carabine', 'cards/winchester', 'cards/back', 'roles/back'],
     'roles1': ['roles/sheriff', 'roles/deputy', 'roles/outlaw', 'roles/renegade'],
+    # event cards (High Noon + A Fistful of Cards)
+    'events1': ['events/blessing', 'events/curse', 'events/daltons', 'events/doctor'],
+    'events2': ['events/ghosttown', 'events/goldrush', 'events/hangover', 'events/reverend'],
+    'events3': ['events/sermon', 'events/shootout', 'events/thirst', 'events/train'],
+    'events4': ['events/highnoon', 'events/mine', 'events/ambush', 'events/bloodbros'],
+    'events5': ['events/deadman', 'events/liquor', 'events/judge', 'events/lasso'],
+    'events6': ['events/lawwest', 'events/peyote', 'events/ranch', 'events/ricochet'],
+    'events7': ['events/roulette', 'events/sniper', 'events/vendetta', 'events/fistful'],
     # re-rolls (later entries overwrite earlier ones; None = panel unused)
     #   roles1 sheriff/deputy badges had lettering, chars4 vulture had lettered gravestones
     'fix1': ['roles/sheriff', 'roles/deputy', 'chars/vulture', None],
+    #   events2 hangover ('SALOON' carved on table) / reverend ('BIBLE' on book) had lettering
+    'events_fix1': ['events/hangover', 'events/reverend', None, None],
 }
 # extra inset (fraction of each side) after deframe, for panels with rounded/torn edges
 INSET = {'cards/back': 0.045, 'roles/back': 0.045, 'lobby': 0.025, 'table': 0.03}
