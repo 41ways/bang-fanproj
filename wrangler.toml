@@ -1,0 +1,20 @@
+# 뱅! — Cloudflare Workers 무료 플랜 (결제 수단 없음 → 한도를 넘어도 요금 0, 그날 요청만 거절)
+# 화면 파일은 정적 자산으로, 소켓(/ws)만 Worker → Durable Object(하나) 로 간다.
+name = "bang"
+main = "src/worker.js"
+compatibility_date = "2026-08-01"
+workers_dev = true
+preview_urls = false
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = ["/ws", "/healthz"]
+
+[[durable_objects.bindings]]
+name = "HUB"
+class_name = "BangHub"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["BangHub"]
