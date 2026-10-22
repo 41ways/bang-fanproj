@@ -622,6 +622,12 @@ $('#hand').addEventListener('dblclick', e => {
 /** 대상 없는 카드 — 효과 없는 맥주만 한 번 묻는다(BGA 와 같다) */
 function playNoTarget(id) {
   const g = G(), p = myP();
+  const k = DECK[id].k, old = p.table.find(c => KINDS[c.k].range && c.id !== id);
+  if (KINDS[k].range && old && !playNoTarget.ok) {
+    openPop(`<p class="pop-title">${KINDS[k].name}</p><p class="pop-sub">지금 든 ${KINDS[old.k].name}(사거리 ${KINDS[old.k].range})${josa(KINDS[old.k].name, '을', '를')} 버리고 ${KINDS[k].name}(사거리 ${KINDS[k].range})${josa(KINDS[k].name, '으로', '로')} 바꿀까요? 무기는 하나만 쓸 수 있어요.</p><div class="pop-acts"><button class="wbtn dark" data-x><span>그만두기</span></button><button class="wbtn red" id="wpYes"><span>바꾸기</span></button></div>`);
+    $('#wpYes').onclick = () => { closePop(); playNoTarget.ok = true; playNoTarget(id); playNoTarget.ok = false; };
+    return;
+  }
   if (DECK[id].k === 'beer' && (p.hp >= p.max || g.players.filter(x => x.alive).length <= 2)) {
     openPop(`<p class="pop-title">맥주</p><p class="pop-sub">${p.hp >= p.max ? '생명이 가득 차 있어서' : '두 명만 남아서'} 마셔도 아무 효과가 없어요. 그래도 마실까요?</p><div class="pop-acts"><button class="wbtn dark" data-x><span>그만두기</span></button><button class="wbtn red" id="beerYes"><span>마시기</span></button></div>`);
     $('#beerYes').onclick = () => { closePop(); act({ a: 'play', c: id }); };

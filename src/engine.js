@@ -95,13 +95,12 @@ export class Game {
   /** 무늬 — 축복이면 모두 ♥, 저주면 모두 ♠ (뽑기!·블랙 잭 판정에만) */
   suitOf(c) { return this.ev('blessing') ? 'H' : this.ev('curse') ? 'S' : this.C(c).s; }
 
-  /** 더미에서 한 장. 비었으면 버린 카드(맨 위 한 장 빼고)를 섞어 새 더미로 */
+  /** 더미에서 한 장. 비었으면 버린 카드를 모두(맨 위 카드까지 — BGA 와 같다) 섞어 새 더미로 */
   draw() {
     if (!this.deck.length) {
-      if (this.pile.length <= 1) return null;
-      const top = this.pile.pop();
+      if (!this.pile.length) return null;
       this.deck = this.shuffle(this.pile);
-      this.pile = [top];
+      this.pile = [];
       this.log('버린 카드를 섞어 새 더미를 만들었습니다.', 'sys');
       this.emit({ fx: 'reshuffle' });
     }
