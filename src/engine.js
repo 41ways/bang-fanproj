@@ -122,7 +122,8 @@ export class Game {
   /* ───────────── 요청 · 답 ───────────── */
 
   *ask(q) {
-    this.suzy();
+    // 수지 라파예트는 낸 카드가 다 풀린 뒤에 뽑는다(FAQ Q22) — 그래서 여기서가 아니라 카드와 카드 사이에서 본다
+    if (q.kind === 'play' || q.kind === 'discard') this.suzy();
     q.seq = ++this.seq;
     this.req = q;
     const r = yield q;
@@ -213,7 +214,9 @@ export class Game {
       if (this.has(p, k)) return '같은 카드를 두 장 놓을 수 없습니다';
     }
     if (def.tg) {
-      if (!T || !T.alive || T === p) return '대상을 고르세요';
+      const self = T === p && (k === 'panic' || k === 'catbalou');   // 내 앞의 카드(다이너마이트 등)는 내가 치워도 된다(BGA)
+      if (!T || !T.alive || (T === p && !self)) return '대상을 고르세요';
+      if (self && (tc === 'hand' || !T.table.includes(tc))) return '내 앞에 놓인 카드만 고를 수 있습니다';
       if (def.tg === 'reach' && this.dist(p, T) > this.range(p)) return '사거리 밖입니다';
       if (def.tg === 'one' && this.dist(p, T) > 1) return '거리 1 안이어야 합니다';
       if (def.tg === 'jail') {
@@ -237,7 +240,8 @@ export class Game {
       const def = KINDS[k];
       if (def.tg) {
         const tg = [];
-        for (const T of this.others(p)) {
+        const cands = (k === 'panic' || k === 'catbalou') && p.table.length ? [p, ...this.others(p)] : this.others(p);
+        for (const T of cands) {
           if (k === 'panic' || k === 'catbalou') {
             if (!this.whyNot(p, c, T.id, 'hand') || T.table.some(x => !this.whyNot(p, c, T.id, x))) tg.push(T.id);
           } else if (!this.whyNot(p, c, T.id)) tg.push(T.id);

@@ -561,7 +561,7 @@ function renderMe() {
   const p = myP(), box = $('#me');
   if (!p) { box.className = 'me spec'; box.innerHTML = '<p class="me-spec">관전 중 — 손 카드는 보이지 않아요</p>'; return; }
   const g = G();
-  box.className = 'me' + (p.id === g.turn && !g.over ? ' turn' : '') + (!p.alive ? ' dead' : '') + (g.req && g.req.to === me && !g.over ? ' asked' : '');
+  box.className = 'me' + (p.id === g.turn && !g.over ? ' turn' : '') + (!p.alive ? ' dead' : '') + (g.req && g.req.to === me && !g.over ? ' asked' : '') + (targets().has(me) ? ' target' : '');
   const bangUsed = g.turn === me && g.bangs && p.char !== 'willy' && !p.table.some(c => c.k === 'volcanic');
   box.innerHTML = `
     <div class="me-card por" data-char="${p.char}"><img src="${CHAR_IMG(p.char)}" alt="">${ringSVG}<span class="rb ${p.role}">${ROLE_EMO[p.role]}</span></div>
@@ -669,13 +669,20 @@ $('#opps').addEventListener('click', e => {
   act({ a: 'play', c, t: pid });
 });
 
+/* 내 앞의 카드를 강탈 · 캣 벌로우로 치울 때 — 내 자리를 누른다 */
+$('#me').addEventListener('click', () => {
+  const r = myReq();
+  if (!r || r.kind !== 'play' || sel.length !== 1 || mode) return;
+  const mv = r.moves[sel[0]];
+  if (mv && mv.steal && mv.tg.includes(me)) stealPick(sel[0], me);
+});
 /** 강탈 · 캣 벌로우 — 손에서 무작위로, 또는 앞에 놓인 카드 */
 function stealPick(c, pid) {
   const p = G().players.find(x => x.id === pid), k = DECK[c].k;
   const opts = [];
-  if (p.hand) opts.push(`<button class="sp-opt" data-tc="hand"><span class="card back"><img class="c-art" src="${CARD_IMG('back')}" alt=""></span><small>손에서 무작위 1장<br>(${p.hand}장 중)</small></button>`);
+  if (p.hand && pid !== me) opts.push(`<button class="sp-opt" data-tc="hand"><span class="card back"><img class="c-art" src="${CARD_IMG('back')}" alt=""></span><small>손에서 무작위 1장<br>(${p.hand}장 중)</small></button>`);
   for (const t of p.table) opts.push(`<button class="sp-opt" data-tc="${t.id}">${cardHTML(t)}<small>${KINDS[t.k].name}</small></button>`);
-  openPop(`<p class="pop-title">${KINDS[k].name}</p><p class="pop-sub">${esc(p.name)} 님의 어떤 카드를 ${k === 'panic' ? '빼앗을까요' : '버리게 할까요'}?</p><div class="sp-row">${opts.join('')}</div><div class="pop-acts"><button class="wbtn dark" data-x><span>그만두기</span></button></div>`);
+  openPop(`<p class="pop-title">${KINDS[k].name}</p><p class="pop-sub">${pid === me ? `내 앞의 어떤 카드를 ${k === 'panic' ? '손으로 가져올까요' : '버릴까요'}?` : `${esc(p.name)} 님의 어떤 카드를 ${k === 'panic' ? '빼앗을까요' : '버리게 할까요'}?`}</p><div class="sp-row">${opts.join('')}</div><div class="pop-acts"><button class="wbtn dark" data-x><span>그만두기</span></button></div>`);
   $$('#popBox [data-tc]').forEach(b => b.onclick = () => { closePop(); act({ a: 'play', c, t: pid, tc: b.dataset.tc === 'hand' ? 'hand' : Number(b.dataset.tc) }); });
 }
 

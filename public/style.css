@@ -285,6 +285,7 @@ body[data-screen="game"] .brand { display: none; }
 .me.turn { box-shadow: 0 0 0 4px var(--gold), 0 0 0 6px #160c05, 0 0 32px rgba(255, 205, 100, .7); }
 .me.asked:not(.turn) { box-shadow: 0 0 0 4px var(--blue-hi), 0 0 0 6px #160c05, 0 0 28px rgba(90, 180, 230, .65); }
 .me.dead { filter: grayscale(1) brightness(.7); }
+.me.target { cursor: crosshair; box-shadow: 0 0 0 4px var(--red-hi), 0 0 0 6px #160c05, 0 0 30px rgba(255, 90, 50, .8); }
 .me.spec { display: block; width: auto; }
 .me-spec { margin: 0; padding: 10px; color: var(--ink-2); }
 .me-card { position: relative; grid-row: span 3; width: 86px; height: 86px; }

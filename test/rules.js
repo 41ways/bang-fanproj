@@ -228,5 +228,30 @@ const empty = g => { for (const p of g.players) { g.pile.push(...p.hand); p.hand
   ok(g.dist(g.P('p0'), g.P('p2')) === 1, '로즈→맞은편: 2−1 = 1');
 }
 
+/* 수지 라파예트 — 결투 중에 마지막 카드를 내도 결투가 끝난 뒤에 뽑는다 (FAQ Q22) */
+{
+  const g = setup(['bart', 'suzy', 'pedro', 'kit']);
+  empty(g);
+  hand(g, 'p0', [find('duel', 'D', 12), find('bang', 'C', 3), find('beer', 'H', 6)]);
+  hand(g, 'p1', [find('bang', 'C', 4)]);
+  g.answer('p0', { a: 'play', c: find('duel', 'D', 12), t: 'p1' });
+  g.answer('p1', { a: 'cards', cs: [find('bang', 'C', 4)] });
+  ok(g.req.to === 'p0' && g.P('p1').hand.length === 0, '결투 중에는 수지가 아직 안 뽑는다');
+  g.answer('p0', { a: 'cards', cs: [find('bang', 'C', 3)] });
+  ok(g.P('p1').hp === 3 && g.P('p1').hand.length === 1, '결투가 끝나고 1장 ' + g.P('p1').hand.length);
+}
+
+/* 캣 벌로우로 내 앞의 다이너마이트를 치운다 (BGA 는 자기 자신도 허용) */
+{
+  const g = setup(['bart', 'sid', 'pedro', 'kit']);
+  empty(g);
+  hand(g, 'p0', [find('catbalou', 'D', 9), find('beer', 'H', 6)]);
+  table(g, 'p0', [find('dynamite')]);
+  ok(g.moves(g.P('p0'))[find('catbalou', 'D', 9)].tg.includes('p0'), '내 자리도 대상');
+  ok(g.whyNot(g.P('p0'), find('catbalou', 'D', 9), 'p0', 'hand') !== null, '내 손은 못 고름');
+  g.answer('p0', { a: 'play', c: find('catbalou', 'D', 9), t: 'p0', tc: find('dynamite') });
+  ok(!g.P('p0').table.length, '다이너마이트를 버림');
+}
+
 console.log(fails ? `✗ ${fails}/${n} 실패` : `규칙 ${n}개 통과`);
 process.exit(fails ? 1 : 0);
