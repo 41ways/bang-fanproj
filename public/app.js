@@ -5,7 +5,7 @@
  * 판에서는 서버가 보낸 상태를 한 통씩 줄 세워 그린다. 연출(fx)이 딸려 오면 총알이 날아가고
  * "BANG!"이 터지는 것을 다 보여 준 뒤에 다음 상태로 넘어간다 — 서버도 그만큼 봇을 기다리게 한다.
  */
-import { KINDS, CHARS, ROLES, SUITS, RANKS, DECK, EVENTS } from './cards.js';
+import { KINDS, CHARS, ROLES, SUITS, RANKS, DECK, EVENTS, ROLES_BY_N } from './cards.js';
 
 const $ = s => document.querySelector(s);
 const $$ = s => Array.from(document.querySelectorAll(s));
@@ -1038,11 +1038,16 @@ function showEvent(k) {
   sfx.turn();
   setTimeout(() => d.remove(), FX_MS.event - 200);
 }
+/** 이번 판 역할 구성 — "보안관 1 · 부관 1 · 무법자 2 · 배신자 1" */
+function roleMix(n) {
+  const c = {}; for (const r of ROLES_BY_N[n] || []) c[r] = (c[r] || 0) + 1;
+  return ['sheriff', 'deputy', 'outlaw', 'renegade'].filter(r => c[r]).map(r => `${ROLE_EMO[r]} ${ROLES[r].name} ${c[r]}`).join(' · ');
+}
 function showGate(ms) {
   gateShown = true;
   const g = G(), sh = g.players.find(p => p.role === 'sheriff');
   const el = $('#gate');
-  el.innerHTML = `<div class="gate-in"><img src="${CHAR_IMG(sh.char)}" alt=""><p class="gate-k">⭐ 보안관</p><p class="gate-t"><b>${esc(sh.name)}</b> 님부터 시작합니다</p><p class="gate-s">${sh.id === me ? '당신이 보안관이에요 — 먼저 쏘세요!' : '차례는 시계 방향 — 내 왼쪽 사람이 다음이에요'}</p></div>`;
+  el.innerHTML = `<div class="gate-in"><img src="${CHAR_IMG(sh.char)}" alt=""><p class="gate-k">⭐ 보안관</p><p class="gate-t"><b>${esc(sh.name)}</b> 님부터 시작합니다</p><p class="gate-s">${sh.id === me ? '당신이 보안관이에요 — 먼저 쏘세요!' : '차례는 시계 방향 — 내 왼쪽 사람이 다음이에요'}</p><p class="gate-r">${roleMix(g.players.length)}</p></div>`;
   el.hidden = false;
   setTimeout(() => { el.hidden = true; }, Math.min(ms, 3400));
 }
