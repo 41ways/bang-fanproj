@@ -762,7 +762,8 @@ function act(r) {
 /* 할 일 막대 */
 const WHY = { bang: '뱅!', gatling: '기관총', indians: '인디언!', duel: '결투', sniper: '저격', ricochet: '도탄', roulette: '러시안 룰렛', fistful: '한 줌의 카드' };
 function renderAct() {
-  const g = G(), r = g.req, rm = myReq();
+  const g = G(); if (!g) return;
+  const r = g.req, rm = myReq();
   const box = $('#act'), tx = $('#actText'), bt = $('#actBtns');
   const p = myP();
   let text = '', btns = [];
@@ -1125,7 +1126,7 @@ function openPop(html, sticky) {
 function closePop() {
   const was = !$('#pop').hidden;
   $('#pop').hidden = true; $('#popBox').innerHTML = ''; $('#pop').dataset.sticky = '';
-  if (was && screen === 'game' && G()) setTimeout(renderAct, 0);
+  if (was && screen === 'game' && G()) setTimeout(() => { if (screen === 'game' && G()) renderAct(); }, 0);
 }
 $('#pop').onclick = e => { if (e.target.id === 'pop' && !$('#pop').dataset.sticky) closePop(); };
 
