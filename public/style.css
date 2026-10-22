@@ -629,3 +629,20 @@ body.spec #bEmo { display: none; }
   .board { border-width: 20px; border-image-width: 20px; }
   #lobby { padding: 58px 8px 14px; }
 }
+/* 폰: 역할 카드는 작게, 인물 두 장은 나란히 */
+@media (max-width: 520px) {
+  #intro { padding: 54px 10px 14px; }
+  .intro-step { font-size: 20px; margin-bottom: 10px; }
+  .intro-row { gap: 14px; }
+  .role-flip, .rf-in { width: 150px; }
+  .rf-in { height: 196px; }
+  .rf-front img { height: 148px; }
+  .rf-name { font-size: 19px; }
+  .rf-goal { font-size: 13.5px; margin-top: 8px; }
+  .ic-pick { gap: 10px; flex-wrap: nowrap; }
+  .char-card { width: calc(50vw - 20px); padding-bottom: 10px; }
+  .cc-name { font-size: 16px; margin-top: 6px; }
+  .cc-desc { font-size: 12px; min-height: 0; padding: 4px 8px 0; }
+  .intro-foot { margin-top: 12px; font-size: 13px; }
+}
+@media (max-width: 520px) { .role-flip { width: 100%; } .rf-in { margin: 0 auto; } .rf-goal { max-width: 330px; margin-left: auto; margin-right: auto; } }
