@@ -132,6 +132,8 @@ npx --yes wrangler@4.151.3 deploy     # PowerShell 에선 npx.cmd (npx.ps1 실�
 - 러시안 룰렛 그림 교체: 초록 펠트 위 닫힌 실린더 → 나무 탁자에서 실린더를 열고 총알 한 발을 넣는 손. 도탄 그림 교체: 굵은 만화 지그재그 → 편자에 맞고 튕기는 가는 궤적. 원본은 `raw/events_fix2.png`, `make_assets.py` 의 `events_fix2`
 - 판 탁자 배경(`table.jpg`)의 초록 펠트를 어두운 갈색 가죽으로 바꿨다(사용자 규칙: 카드 게임 바닥에 초록 금지). `make_assets.py` 의 `unfelt()` 가 table 을 만들 때 자동으로 적용하므로 raw 에서 다시 만들어도 갈색이 된다
 - `null.req` 오류 조사: app.js 에서 `.req` 를 읽는 곳은 모두 `G()` 가 null 일 때 걸러진다(`renderGame` · `renderAct` · `tick` 의 가드, `seatHTML` 등은 `renderGame` 안에서만 불림). 실제 이용자 오류 기록(norara-errors D1 `errs`, app='bang')에도 한 건도 없다. 맥에서 음소거 자동 플레이 두 갈래(데스크톱 6인 연속 · 폰 7인 + 판 중 떠나기/새 테이블 반복)를 돌려도 오류 0. 시험용 클릭 스크립트에서 난 것으로 보고 닫는다
+- 배포: 버전 `c0168813-1154-4c7f-af95-f2717b59f299` (커밋 a115ba9). 맥 wrangler 로그인은 살아 있다
+- 이 저장소 예전 커밋 17개에는 `Co-Authored-By: Claude` 줄이 들어 있다. 지우려면 이력을 다시 써야 해서(강제 푸시) 사용자에게 먼저 묻는다
 
 ## 9. 다음에 할 일
 
