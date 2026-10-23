@@ -9,9 +9,9 @@
 |---|---|
 | 배포 | https://bang.41ways.workers.dev/ (Cloudflare Workers 무료 플랜, 결제 수단 없음) |
 | GitHub | https://github.com/41ways/bang-fanproj |
-| 폴더 | `C:\Users\정한결\bang-fanproj` |
-| 허브 카드 | `C:\Users\정한결\norara\index.html` 의 "🤠 뱅! NEW" (41ways.github.io/norara) |
-| 로컬 프리뷰 | `C:\Users\정한결\.claude\launch.json` 의 `bang`(8860, 실제 속도) · `bang-fast`(8861, 봇이 기다리지 않음) |
+| 폴더 | 맥 `~/projects/bang-fanproj` · 윈도우 `C:\Users\정한결\bang-fanproj` |
+| 허브 카드 | 허브 `index.html` 의 "🤠 BANG!" (맥 `~/projects/41ways.github.io`, 윈도우 `C:\Users\정한결\norara`) |
+| 로컬 프리뷰 | 맥 `~/projects/.claude/launch.json` 의 `bang`(8862, 실제 속도) · `bang-fast`(8863, 봇이 기다리지 않음) — 맥은 8860 을 요트가 쓴다. 윈도우는 `C:\Users\정한결\.claude\launch.json` 의 8860 · 8861 |
 | 제미나이 채팅 | https://gemini.google.com/app/dc6285559751903d (사용자 Chrome, 같은 채팅에서 이어 뽑는다) |
 
 시작 전 `git pull`.
@@ -44,7 +44,7 @@
 | `public/img/` | cards · chars · roles · events(28) · ui(단추·전단·게시판·로고·타이틀·icons 12·fx 4) |
 | `public/fonts/` | 고운 글꼴(바퀴벌레 포커에서 가져옴) + 구글 Rye |
 | `tools/` | 그림 가공(아래 6절) |
-| `raw/` | 제미나이 원본(git 제외, 이 컴퓨터에만 있음) |
+| `raw/` | 제미나이 원본(git 제외). 대부분 윈도우 PC 에만 있고, 맥에는 `events_fix2.png` 만 있다 |
 
 ## 4. 규칙 근거와 구현 범위
 
@@ -92,6 +92,7 @@ node server.js 8861 fast # 봇이 기다리지 않는다   (프리뷰 이름 ban
 
 1. 사용자 Chrome 에서 제미나이 채팅(1절 주소)을 열고 같은 채팅에서 이어서 요청한다(화풍 유지). 여러 장은 2x2 격자나 마젠타 바탕 시트로 한 번에
 2. 받은 파일(`Downloads\Gemini_Generated_Image_*`)은 **내가 받은 것만** `raw/` 로 옮긴다(다른 게임 세션도 같은 계정을 쓴다)
+   - 맥에서 다운로드 없이 받은 방법(2026-10-23): 제미나이 페이지는 CSP 때문에 localhost 로 fetch · form 전송이 막힌다. 대신 페이지에서 `img` 를 canvas 에 그려 512px 칸 하나씩 화면 왼쪽 위에 1:1 로 띄우고 Claude in Chrome `zoom`(save_to_disk, scale 0.5)로 512x512 그대로 저장한 뒤 네 칸을 1024 격자로 다시 붙여 `raw/` 에 넣었다. 제미나이 미리보기 이미지가 1024 원본이라 워터마크 위치(`dewatermark2`)도 그대로 맞는다
 3. 가공
    - `tools/dewatermark2.py` 제미나이 반짝이 워터마크 지우기(역 알파 합성, `dewatermark.py` 보다 흔적 적음)
    - `tools/cut_grid.py` 격자 자르기 · `tools/cut_sheet.py` 마젠타 바탕 시트를 투명 PNG 로
@@ -109,7 +110,7 @@ npx --yes wrangler@4.151.3 deploy     # PowerShell 에선 npx.cmd (npx.ps1 실�
 - **배포하면 진행 중인 방이 모두 끊기고 사라진다**(Durable Object 가 새로 뜬다). 사람이 하고 있을 땐 배포하지 말 것
 - 무료 플랜: 한도를 넘어도 요금 0, 그날 요청만 거절된다. DO 는 하나(main), hibernation 안 씀
 - wrangler 로그인은 2026-10-22 갱신. 만료되면 사용자에게 `wrangler login` 승인을 받아야 한다
-- 커밋은 한국어 한 줄 요약 + `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>` (이 저장소 관례)
+- 커밋은 한국어 한 줄 요약. **`Co-Authored-By` 줄은 넣지 않는다**(사용자 지시 — GitHub 컨트리뷰터에 Claude 가 뜨면 안 된다)
 
 ## 8. 밤샘 작업 결과 (2026-10-22 밤 ~ 10-23 새벽)
 
@@ -124,13 +125,15 @@ npx --yes wrangler@4.151.3 deploy     # PowerShell 에선 npx.cmd (npx.ps1 실�
 
 ### 남은 흠 (플레이엔 지장 없음)
 
-- 러시안 룰렛 이벤트 그림의 권총 실린더가 닫혀 있다
-- 도탄 효과 궤적이 조금 만화 같다
-- 타이틀 배경(`ui/title_bg.jpg`)에 워터마크 지운 자국이 희미하다
-- 직전 자동 플레이 한 판에서 `Cannot read properties of null (reading 'req')` 가 한 번 났다. app.js 의 `.req` 접근은 모두 막혀 있어 시험용 자동 클릭 스크립트 쪽으로 보이고, 그 뒤 판들에서는 다시 안 났다. 다시 보이면 스택을 잡아 볼 것
+- 타이틀 배경(`ui/title_bg.jpg`) 오른쪽 아래 현관 계단 근처(약 1752,899)에 워터마크 지운 별 윤곽이 아주 희미하게 남아 있다. 원래 크기에선 거의 안 보여서 그대로 뒀다. 고치려면 raw 원본에서 다시 만드는 게 낫다
+
+## 8-1. 맥에서 이어서 한 일 (2026-10-23)
+
+- 러시안 룰렛 그림 교체: 초록 펠트 위 닫힌 실린더 → 나무 탁자에서 실린더를 열고 총알 한 발을 넣는 손. 도탄 그림 교체: 굵은 만화 지그재그 → 편자에 맞고 튕기는 가는 궤적. 원본은 `raw/events_fix2.png`, `make_assets.py` 의 `events_fix2`
+- 판 탁자 배경(`table.jpg`)의 초록 펠트를 어두운 갈색 가죽으로 바꿨다(사용자 규칙: 카드 게임 바닥에 초록 금지). `make_assets.py` 의 `unfelt()` 가 table 을 만들 때 자동으로 적용하므로 raw 에서 다시 만들어도 갈색이 된다
+- `null.req` 오류 조사: app.js 에서 `.req` 를 읽는 곳은 모두 `G()` 가 null 일 때 걸러진다(`renderGame` · `renderAct` · `tick` 의 가드, `seatHTML` 등은 `renderGame` 안에서만 불림). 실제 이용자 오류 기록(norara-errors D1 `errs`, app='bang')에도 한 건도 없다. 맥에서 음소거 자동 플레이 두 갈래(데스크톱 6인 연속 · 폰 7인 + 판 중 떠나기/새 테이블 반복)를 돌려도 오류 0. 시험용 클릭 스크립트에서 난 것으로 보고 닫는다
 
 ## 9. 다음에 할 일
 
 - 사용자가 아침에 직접 플레이한 뒤 나오는 지적부터 고친다(사용자 피드백이 우선)
-- 남은 흠 그림 세 개 다시 뽑기(제미나이 한도 확인 후): 룰렛 실린더, 도탄 궤적, 타이틀 배경
 - 여유가 되면: 사람 여럿이 실제로 붙는 판(두 기기)을 배포 사이트에서 한 번 더 확인

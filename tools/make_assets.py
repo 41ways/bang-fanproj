@@ -48,6 +48,8 @@ GRIDS = {
     'fix1': ['roles/sheriff', 'roles/deputy', 'chars/vulture', None],
     #   events2 hangover ('SALOON' carved on table) / reverend ('BIBLE' on book) had lettering
     'events_fix1': ['events/hangover', 'events/reverend', None, None],
+    #   events7 roulette had a closed cylinder on green felt, events6 ricochet trail looked too cartoony
+    'events_fix2': [None, 'events/roulette', 'events/ricochet', None],
 }
 # extra inset (fraction of each side) after deframe, for panels with rounded/torn edges
 INSET = {'cards/back': 0.045, 'roles/back': 0.045, 'lobby': 0.025, 'table': 0.03}
@@ -166,6 +168,19 @@ def build_singles():
         save_webp(square(deframe(im)), rel)
 
 
+def unfelt(im, hue=26, sat=0.5, val=0.6):
+    """green felt -> dark brown leather (user: no green card tables). Keeps shading/texture, leaves the wood rim alone."""
+    hsv = np.asarray(im.convert('HSV')).astype(np.float32)
+    h, s, v = hsv[..., 0] * 360 / 255, hsv[..., 1] / 255, hsv[..., 2] / 255
+    m = np.clip(1 - np.maximum(0, np.abs(h - 110) - 60) / 12, 0, 1) * np.clip((s - 0.08) / 0.1, 0, 1)
+    ns = np.clip(sat * (0.6 + 0.8 * s), 0, 1)
+    out = hsv.copy()
+    out[..., 0] = np.where(m > 0, hue * 255 / 360, hsv[..., 0])
+    out[..., 1] = (s * (1 - m) + ns * m) * 255
+    out[..., 2] = (v * (1 - m) + v * val * m) * 255
+    return Image.fromarray(out.round().clip(0, 255).astype(np.uint8), 'HSV').convert('RGB')
+
+
 def build_bg(name, out, size):
     im = load_raw(name)
     if im is None:
@@ -174,6 +189,8 @@ def build_bg(name, out, size):
     im = inset(im, INSET.get(name, 0))  # no deframe: it would bite into the table's felt outline
     if name == 'paper':
         im = seamless(im)
+    if name == 'table':
+        im = unfelt(im)
     im = ImageOps.fit(im, size, Image.LANCZOS)
     path = os.path.join(IMG, out)
     im.save(path, 'JPEG', quality=80, optimize=True, progressive=True)
