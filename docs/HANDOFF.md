@@ -14,7 +14,17 @@
 | 로컬 프리뷰 | 맥 `~/projects/.claude/launch.json` 의 `bang`(8862, 실제 속도) · `bang-fast`(8863, 봇이 기다리지 않음) — 맥은 8860 을 요트가 쓴다. 윈도우는 `C:\Users\정한결\.claude\launch.json` 의 8860 · 8861 |
 | 제미나이 채팅 | https://gemini.google.com/app/dc6285559751903d (사용자 Chrome, 같은 채팅에서 이어 뽑는다) |
 
-시작 전 `git pull`.
+시작 전 `git pull`. 사용자가 윈도우 PC · 맥북 둘 다에서 만진다.
+
+### 윈도우 · 맥 어디서든
+
+- 코드 · 도구는 저장소 안 상대 경로만 쓴다. 한쪽 OS 전용 경로 · 명령을 넣지 말 것
+- `npm test` · `node server.js 8861 fast` 는 둘 다 같은 명령
+- 파이썬: 윈도우 `python`, 맥 `python3` (이 문서의 `python …` 은 맥에선 `python3 …`). Pillow 필요
+- `npx`: 맥 · Git Bash 는 그대로, PowerShell 은 `npx.cmd`. wrangler 로그인은 기기마다 한 번씩
+- 줄 끝은 `.gitattributes` 가 맞춘다
+- `raw/`(제미나이 원본)는 git 에 없고 만든 컴퓨터에만 있다. 게임에 쓰는 그림(`public/img`)은 저장소에 다 있어서 고치기만 할 땐 필요 없다. `make_assets.py` · `make_ui.py` 로 원본에서 다시 구울 때만 필요 — 없으면 원본을 옮겨 오거나 그 그림만 다시 뽑는다
+- 제미나이에서 받은 파일은 두 OS 모두 `~/Downloads`(윈도우는 `C:\Users\정한결\Downloads`)
 
 ## 2. 흐름 (허브 표준 — 바퀴벌레 포커 · 로보77 과 같다)
 
