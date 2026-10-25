@@ -3,6 +3,25 @@
 보안관 · 부관 · 무법자 · 배신자. 정체를 숨긴 총잡이들의 서부 카드게임을 웹으로 옮긴 팬 프로젝트다.
 4~7명, 사람이 모자라면 봇이 자리를 채운다. 규칙은 Board Game Arena 의 BANG! 기본판(카드 80장 · 인물 16명)을 따른다.
 
+**플레이: https://bang.41ways.workers.dev/**
+
+![판 — 6인, 하이눈 · 한 줌의 카드 이벤트가 깔린 내 차례](docs/screenshots/game.webp)
+
+<table>
+<tr>
+<td width="50%"><img src="docs/screenshots/title.webp" alt="타이틀"></td>
+<td width="50%"><img src="docs/screenshots/lobby.webp" alt="대기실"></td>
+</tr>
+<tr><td align="center">타이틀</td><td align="center">대기실 — 봇 앉히기 · 방장 설정(확장 · 시간 · 비공개)</td></tr>
+<tr>
+<td><img src="docs/screenshots/intro.webp" alt="역할과 인물"></td>
+<td><img src="docs/screenshots/result.webp" alt="결과"></td>
+</tr>
+<tr><td align="center">역할 · 인물 확인 — 모두 확인해야 판이 열린다</td><td align="center">결과</td></tr>
+</table>
+
+<p align="center"><img src="docs/screenshots/mobile.webp" width="280" alt="폰 화면"><br>폰 화면</p>
+
 ## 화면 (허브의 다른 게임 — 바퀴벌레 포커 · 로보77 — 과 같은 흐름)
 
 타이틀(시작하기 · 규칙 보기) → 방 고르기(수배 전단에 이름 · 새 테이블 · 코드로 입장, 마을 게시판의 열린 테이블)
