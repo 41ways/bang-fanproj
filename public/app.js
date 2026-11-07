@@ -619,16 +619,36 @@ function layout() {
   // 폰에서는 둥글게 앉히지 않고 위쪽에 3칸씩 줄 세운다(CSS) — 차례 순서는 그대로 왼쪽 위부터
   if (innerWidth < 760) { els.forEach(el => { el.style.left = ''; el.style.top = ''; }); return; }
   const narrow = t.width < 900;
-  els.forEach((el, i) => {
-    const a = (narrow ? 168 : 158) + (i + .5) * ((narrow ? 204 : 224) / k);
+  $('#table').classList.toggle('narrow', narrow);        // 좁은 판 — 가운데를 세로로 쌓는다(CSS)
+  // 화면 위에 떠 있는 단추(도구 · 도움말 · 채팅) 자리 — 자리가 그 밑으로 들어가지 않게
+  const avoid = $$('.game-tools, .top-r, #chatBtn').map(e => e.getBoundingClientRect()).filter(r => r.width && r.height)
+    .map(r => ({ l: r.left - t.left - 4, r: r.right - t.left + 4, b: r.bottom - t.top + 4 }));
+  const place = s => els.forEach((el, i) => {
+    el.style.setProperty('--os', s);
+    // 사람이 많으면 타원 옆구리까지 내려 앉힌다(위쪽에만 몰리지 않게)
+    const span = k >= 5 ? 252 : narrow ? 204 : 224, a = 270 - span / 2 + (i + .5) * (span / k);
     const rad = a * Math.PI / 180;
-    const w = el.offsetWidth, h = el.offsetHeight;
+    const w = el.offsetWidth * s, h = el.offsetHeight * s;
     let x = t.width / 2 + t.width * (narrow ? .36 : .40) * Math.cos(rad);
     let y = t.height * .62 + t.height * .54 * Math.sin(rad);
     x = Math.min(t.width - w / 2 - 6, Math.max(w / 2 + 6, x));
     y = Math.min(t.height - h / 2 - 4, Math.max(h / 2 + 4, y));
+    for (const z of avoid) if (x + w / 2 > z.l && x - w / 2 < z.r && y - h / 2 < z.b) y = z.b + h / 2;
     el.style.left = x + 'px'; el.style.top = y + 'px';
   });
+  // 자리끼리, 또는 가운데(더미 · 버린 카드 · 이벤트 · 소식)와 겹치면 자리를 조금씩 줄인다
+  const hit = (a, b) => Math.min(a.right, b.right) - Math.max(a.left, b.left) > 3 && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 3;
+  const fixed = $$('#deck, #pile, #events:not([hidden]), #feed, #act, #me').filter(e => e.offsetParent && e.getBoundingClientRect().height > 4 && (e.id !== 'feed' || e.children.length));
+  for (let s = 1; s >= .66; s -= .06) {
+    place(s);
+    const rs = els.map(e => e.getBoundingClientRect()), fs = fixed.map(e => e.getBoundingClientRect());
+    let bad = false;
+    for (let i = 0; i < rs.length && !bad; i++) {
+      for (let j = i + 1; j < rs.length && !bad; j++) if (hit(rs[i], rs[j])) bad = true;
+      for (const f of fs) if (hit(rs[i], f)) { bad = true; break; }
+    }
+    if (!bad) break;
+  }
 }
 addEventListener('resize', () => requestAnimationFrame(layout));
 
@@ -702,7 +722,18 @@ function renderHand() {
   el.innerHTML = g.me.hand.map(c => cardHTML(c, [g.me.mustPlay === c.id ? 'must' : '', sel.includes(c.id) ? 'sel' : '', ok ? (ok.has(c.id) ? 'can' : 'dim') : '', prevHand.size && !prevHand.has(c.id) ? 'new' : ''].join(' '))).join('');
   prevHand = now;
   el.style.setProperty('--n', g.me.hand.length);
+  fitHand();
 }
+/** 손 카드가 손 칸보다 넓으면 겹쳐서 모두 보이게(옆으로 숨지 않게) */
+function fitHand() {
+  const el = $('#hand'), cs = el.children, n = cs.length;
+  if (!n) return;
+  const cw = cs[0].offsetWidth, st = getComputedStyle(el);
+  const avail = el.clientWidth - parseFloat(st.paddingLeft) - parseFloat(st.paddingRight) - 2;
+  const ov = n > 1 ? Math.max(0, Math.min(cw * .72, (n * cw - avail) / (n - 1))) : 0;
+  el.style.setProperty('--ov', ov.toFixed(1) + 'px');
+}
+addEventListener('resize', () => requestAnimationFrame(fitHand));
 $('#hand').addEventListener('click', e => { const c = e.target.closest('.card'); if (c) clickCard(Number(c.dataset.cid)); });
 $('#hand').addEventListener('dblclick', e => {
   const c = e.target.closest('.card'); if (!c) return;
@@ -798,9 +829,10 @@ function whyNot(id) {
   if (!c) return '';
   const k = c.k === 'missed' && p.char === 'calamity' ? 'bang' : c.k;
   if (c.k === 'missed' && p.char !== 'calamity') return '빗나감!은 누가 나를 쏠 때만 낼 수 있어요.';
-  if (k === 'bang') return g.bangs >= 1 ? '뱅!은 한 턴에 한 장만 쏠 수 있어요.' : `사거리(${p.range}) 안에 쏠 사람이 없어요. 무기를 바꾸거나 조준경을 놓아 보세요.`;
+  if (k === 'bang' && !g.bangLimit) return '설교 — 자기 차례에는 뱅!을 쓸 수 없어요.';
+  if (k === 'bang') return g.bangs >= g.bangLimit ? `뱅!은 한 턴에 ${g.bangLimit}장만 쏠 수 있어요.` : `사거리(${reachOf(p)}) 안에 쏠 사람이 없어요. 무기를 바꾸거나 조준경을 놓아 보세요.`;
   if (k === 'beer') return g.players.filter(x => x.alive).length <= 2 ? '두 명만 남으면 맥주는 효과가 없어요.' : '생명이 가득 차 있어요.';
-  if (k === 'panic') return '거리 1 안에 카드를 가진 사람이 없어요.';
+  if (k === 'panic') return `거리 ${panicReach(p)} 안에 카드를 가진 사람이 없어요.`;
   if (k === 'jail') return '감옥에 넣을 사람이 없어요 (보안관은 못 넣어요).';
   if (KINDS[k].blue) return `이미 ${KINDS[k].name}${josa(KINDS[k].name, '을', '를')} 앞에 놓았어요. 같은 카드는 한 장만.`;
   return '지금은 낼 수 없어요.';
@@ -1205,6 +1237,10 @@ function renderFeed(added) {
   el.innerHTML = lines.map((l, i) => `<p class="${l.cls || ''} ${i === lines.length - 1 ? 'now' : ''} ${i >= lines.length - added ? 'in' : ''}">${feedText(l.text)}</p>`).join('');
 }
 $('#feed').onclick = () => $('#log').classList.add('open');
+const narrowMQ = matchMedia('(max-width: 760px)');
+function placeFeed() { const f = $('#feed'); if (narrowMQ.matches) { if (f.nextElementSibling !== $('#act')) $('#act').before(f); } else if (f.parentElement !== $('#table')) $('#center').after(f); }
+narrowMQ.addEventListener('change', placeFeed);
+placeFeed();
 $('#bLog').onclick = () => $('#log').classList.toggle('open');
 $('#logX').onclick = () => $('#log').classList.remove('open');
 

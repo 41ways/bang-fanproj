@@ -716,3 +716,75 @@ body.spec #bEmo { display: none; }
   .o-last.empty { display: none; }
   .exp-row { gap: 6px; } .exp-row .ecard { width: 52px; height: 74px; } .exp-row .ecard b { font-size: 9px; }
 }
+
+/* ── 겹침 손보기 ── */
+/* 잡화점은 판 가운데 줄에 끼우지 않고 위에 띄운다 — 7장이 펼쳐져도 이벤트 · 자리를 밀어내지 않는다 */
+.store { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 30; max-width: calc(100vw - 24px); }
+.store-row { flex-wrap: wrap; justify-content: center; }
+.center:has(> .store:not([hidden])) { z-index: 12; }
+@media (max-width: 760px) {
+  .store { width: min(372px, calc(100vw - 16px)); padding: 8px 8px 10px; }
+  .store-row { gap: 6px; }
+  /* 가운데 소식은 판 칸 밖, 할 일 막대 바로 위 */
+  .feed { position: static; margin: 4px 8px 4px; width: auto; flex: none; }
+  .feed p:not(.now) { background: rgba(20, 12, 6, .82); }
+  /* 떠 있는 채팅 단추가 맨 아래 단추를 가리지 않게 — 끝까지 밀어 올릴 여백 */
+  #lobby, #setup { padding-bottom: 96px; }
+}
+
+/* ── 겹침 손보기 2 ── */
+/* 자리 크기 — 좁은 화면에서 layout() 이 겹치지 않을 때까지 줄인다 */
+.opp { transform: translate(-50%, -50%) scale(var(--os, 1)); }
+.opp.target:hover { transform: translate(-50%, -50%) scale(calc(var(--os, 1) * 1.06)); }
+/* 잡화점 — 카드 폭만큼 넓게(가운데 줄 폭에 갇히지 않게) */
+.store { width: max-content; }
+/* 손 — 넘치면 겹쳐서 다 보이게 */
+.hand .card { margin-left: calc(-1 * var(--ov, 0px)); }
+.hand .card:first-child { margin-left: 0; }
+/* 가로로 눕힌 폰 — 판이 들어갈 높이가 없다 */
+.rotate { display: none; }
+@media (hover: none) and (orientation: landscape) and (max-height: 500px) {
+  body[data-screen="game"] .rotate, body[data-screen="intro"] .rotate { display: grid; position: fixed; inset: 0; z-index: 90; place-items: center; background: rgba(18, 10, 4, .94); color: var(--cream); text-align: center; padding: 20px; }
+  .rotate p { margin: 0; display: flex; flex-direction: column; gap: 8px; } .rotate b { font-size: 22px; } .rotate small { font-size: 14px; opacity: .8; }
+}
+@media (max-width: 760px) {
+  .opp, .opp.target:hover { transform: none; }
+  /* 대기실 · 방 고르기 · 결과 — 위쪽 단추는 띠 안에, 채팅 단추도 띠 안으로(내용 위에 떠서 가리지 않게) */
+  body:not([data-screen="game"]):not([data-screen="title"]) .topbar { background: linear-gradient(180deg, rgba(22, 13, 6, .96), rgba(22, 13, 6, .88)); box-shadow: 0 2px 10px rgba(0, 0, 0, .45); padding: 6px 12px; pointer-events: auto; }
+  body:not([data-screen="game"]) .chat-btn { bottom: auto; top: 6px; left: auto; right: 116px; width: 42px; height: 42px; }
+  body:not([data-screen="game"]) .chat-btn img { width: 26px; height: 26px; }
+  body:not([data-screen="game"]) .chat-peek { bottom: auto; top: 56px; left: auto; right: 10px; }
+  body:not([data-screen="game"]) .chat { bottom: auto; top: 58px; left: 8px; }
+  #lobby, #setup { padding-bottom: 24px; }
+}
+/* 가운데 소식 — 좁은 판에서는 양옆 자리 사이 폭만큼 */
+.feed { width: min(620px, 56%, calc(100% - 470px)); min-width: 280px; }
+/* 키가 낮은 화면(노트북 1280x720 · 1366x768) — 가운데를 줄여 자리가 덜 작아지게 */
+@media (min-width: 761px) and (max-height: 820px) {
+  .center { gap: 16px; }
+  .deck, .pile { width: 66px; height: 94px; }
+  .pile .card { --cw: 66px; --ch: 94px; }
+  .events .ecard { width: 70px; height: 98px; }
+  .events .ecard small { display: none; }
+  .events .ecard b { font-size: 11px; }
+  .feed { top: calc(52% + 70px); }
+  .feed p { font-size: 12px; padding: 3px 10px; } .feed p.now { font-size: 13.5px; }
+}
+/* 좁은 판(세로로 든 태블릿 등) — 가운데를 이벤트 한 줄 · 더미와 버린 카드 한 줄로 쌓아 양옆 자리와 겹치지 않게 */
+@media (min-width: 761px) {
+  .table.narrow .center { flex-wrap: wrap; justify-content: center; width: 240px; row-gap: 14px; column-gap: 18px; }
+  .table.narrow .events { flex-basis: 100%; justify-content: center; }
+  .table.narrow .feed { top: calc(52% + 170px); }
+}
+@media (max-width: 760px) {
+  .feed { width: auto; min-width: 0; }
+  .center { margin-bottom: 30px; }                 /* "더미 N" 글씨가 판 칸 끝에 잘리지 않게 */
+  body:not([data-screen="game"]):not([data-screen="title"]) .topbar { background: #1c1108; }
+}
+@media (max-width: 760px) {
+  /* 폰 — 판 칸은 스크롤 상자라 그 안에 띄우면 잘린다. 잡화점은 화면 가운데에 고정해 띄운다 */
+  .store { position: fixed; left: 50%; top: 40%; transform: translate(-50%, -50%); z-index: 50; box-shadow: 0 0 0 100vmax rgba(0, 0, 0, .35), var(--shadow); }
+}
+@media (max-width: 760px) {
+  .store { background: #1c1108; box-shadow: 0 0 0 2px var(--gold), 0 12px 30px rgba(0, 0, 0, .7); }
+}

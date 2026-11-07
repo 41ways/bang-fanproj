@@ -672,9 +672,10 @@ export class Game {
       yield* this.drawTwo(p);
       if (this.ev('train')) this.drawTo(p, 1, true);
     }
-    const got = p.hand.length - n0;
-    if (!p.last || !p.last.draw) { this.log(`${this.nm(p)} 님이 카드 ${got}장을 뽑았습니다.`); this.say(p, `${got}장 뽑음`); }
-    p.last.draw = false;
+    const got = p.hand.length - n0, note = this.drawNote;
+    this.drawNote = null;
+    if (!note) this.log(`${this.nm(p)} 님이 카드 ${got}장을 뽑았습니다.`);
+    this.say(p, note ? `${note} — 모두 ${got}장` : `${got}장 뽑음`);
   }
 
   *drawTwo(p) {
@@ -686,7 +687,7 @@ export class Game {
         p.hand.push(c);
         if (this.phaseDrawn) this.phaseDrawn.push(c);
         this.log(`${this.nm(p)} 님이 첫 장을 ${this.nm(t)} 님의 손에서 가져왔습니다.`);
-        this.say(p, `${t.name} 손에서 1장 + 더미 1장`); p.last.draw = true;
+        this.drawNote = `${t.name} 손에서 첫 장`;
         this.emit({ fx: 'steal', from: t.id, to: p.id });
         this.drawTo(p, 1, true);
         return;
@@ -699,7 +700,7 @@ export class Game {
         p.hand.push(c);
         if (this.phaseDrawn) this.phaseDrawn.push(c);
         this.log(`${this.nm(p)} 님이 첫 장으로 버린 카드의 ${this.cnj(c, '을', '를')} 가져왔습니다.`);
-        this.say(p, `버린 카드 ${this.sn(c)} + 더미 1장`); p.last.draw = true;
+        this.drawNote = `버린 카드 ${this.sn(c)}${josa(this.sn(c).replace(/[^가-힣]/g, '') || 'ㄱ', '으로', '로')} 첫 장`;
         this.emit({ fx: 'draw', to: p.id, n: 1, from: 'pile' });
         this.drawTo(p, 1, true);
         return;
@@ -715,7 +716,7 @@ export class Game {
         for (const c of three) if (c !== r.c) { p.hand.push(c); if (this.phaseDrawn) this.phaseDrawn.push(c); }
         if (this.ev('mine')) this.pile.push(r.c); else this.deck.push(r.c);
         this.log(`${this.nm(p)} 님이 3장을 보고 2장을 골랐습니다.`);
-        this.say(p, '3장 보고 2장 고름'); p.last.draw = true;
+        this.drawNote = '3장 보고 2장 고름';
       } else { p.hand.push(...three); if (this.phaseDrawn) this.phaseDrawn.push(...three); }
       this.emit({ fx: 'draw', to: p.id, n: Math.min(2, three.length) });
       return;
@@ -728,7 +729,7 @@ export class Game {
         if (this.phaseDrawn) this.phaseDrawn.push(c);
         const red = this.suitOf(c) === 'H' || this.suitOf(c) === 'D';
         this.log(`${this.nm(p)} 님이 두 번째 장 ${this.cnj(c, '을', '를')} 보여 줍니다${red ? ' — 1장 더!' : '.'}`);
-        this.say(p, `두 번째 장 ${this.sn(c)} 공개${red ? ' → 1장 더' : ''}`); p.last.draw = true;
+        this.drawNote = `두 번째 장 ${this.sn(c)} 공개${red ? '(1장 더)' : ''}`;
         this.emit({ fx: 'show', id: p.id, c });
         if (red) this.drawTo(p, 1, true);
       }
