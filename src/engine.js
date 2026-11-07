@@ -147,6 +147,32 @@ export class Game {
     if (this.ab(a, 'rose')) d--;
     return Math.max(1, d);
   }
+  /* 화면에 보여 줄 계산 — dist(a, b) ≤ range(a) 판정을 "내 쪽 효과는 사거리에, 상대 쪽 효과는 거리에" 나눠 적은 것.
+     자리 + 상대 야생마·폴 ≤ 무기 + 내 조준경·로즈 둘란 은 dist ≤ range 와 똑같다(사거리가 1 이상이라 max(1, …) 도 결과가 같다) */
+  /** 사거리 내역 — [[이름, 값], …] 합이 총 사거리 */
+  reachParts(p) {
+    const w = !this.ev('lasso') && p.table.find(c => WEAPONS.includes(this.C(c).k));
+    const out = [[w ? KINDS[this.C(w).k].name : '콜트 45', w ? KINDS[this.C(w).k].range : 1]];
+    if (this.on(p, 'scope')) out.push([KINDS.scope.name, 1]);
+    if (this.ab(p, 'rose')) out.push([CHARS.rose.name, 1]);
+    return out;
+  }
+  /** 남이 이 사람을 볼 때 더해지는 거리 내역 */
+  guardParts(p) {
+    const out = [];
+    if (this.on(p, 'mustang')) out.push([KINDS.mustang.name, 1]);
+    if (this.ab(p, 'paul')) out.push([CHARS.paul.name, 1]);
+    return out;
+  }
+  /** 자리로만 센 거리(매복이면 1). 살아 있지 않으면 null */
+  seatDist(a, b) {
+    const live = this.alive();
+    const ia = live.indexOf(a), ib = live.indexOf(b);
+    if (a === b || ia < 0 || ib < 0) return null;
+    if (this.ev('ambush')) return 1;
+    const d0 = Math.abs(ia - ib);
+    return Math.min(d0, live.length - d0);
+  }
   /** 다음 사람(왼쪽 = 시계 방향), 살아 있는 사람만 — 카드 효과는 늘 시계 방향 */
   next(p) {
     const n = this.players.length;
@@ -1007,6 +1033,8 @@ export class Game {
         hand: p.hand.length, table: p.table.map(card),
         range: this.range(p),
         dist: me && me.alive && p.alive ? this.dist(me, p) : null,
+        reach: this.reachParts(p), guard: this.guardParts(p),
+        seatDist: me && me.alive && p.alive ? this.seatDist(me, p) : null,
       })),
       me: me ? { id: me.id, hand: me.hand.map(card), mustPlay: this.turn === me.id ? this.mustPlay : null } : null,
       req: null,

@@ -275,5 +275,21 @@ const empty = g => { for (const p of g.players) { g.pile.push(...p.hand); p.hand
   ok(g.pile[g.pile.length - 1] === find('stagecoach'), '고른 카드가 맨 위');
 }
 
+/* 화면에 보이는 사거리 · 거리 내역 */
+{
+  const g = setup(['rose', 'paul', 'pedro', 'sid']);
+  table(g, 'p0', [find('schofield'), find('scope')]);
+  table(g, 'p1', [find('mustang')]);
+  const sum = x => x.reduce((t, [, v]) => t + v, 0);
+  const r = g.reachParts(g.P('p0'));
+  ok(r.map(x => x[0]).join() === '스코필드,조준경,로즈 둘란' && sum(r) === 4, '사거리 = 스코필드 2 + 조준경 1 + 로즈 둘란 1 ' + JSON.stringify(r));
+  const d = g.guardParts(g.P('p1'));
+  ok(d.map(x => x[0]).join() === '야생마,폴 리그렛' && sum(d) === 2, '거리 더하기 = 야생마 + 폴 리그렛 ' + JSON.stringify(d));
+  ok(g.seatDist(g.P('p0'), g.P('p2')) === 2 && g.seatDist(g.P('p0'), g.P('p1')) === 1, '자리 거리');
+  const v = g.view('p0').players;
+  ok(v[1].seatDist === 1 && sum(v[1].guard) === 2 && sum(v[0].reach) === 4, 'view 에 내역이 실린다');
+  ok(sum(g.reachParts(g.P('p3'))) === 1 && g.reachParts(g.P('p3'))[0][0] === '콜트 45', '무기 없으면 콜트 45 · 1');
+}
+
 console.log(fails ? `✗ ${fails}/${n} 실패` : `규칙 ${n}개 통과`);
 process.exit(fails ? 1 : 0);

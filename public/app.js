@@ -502,7 +502,46 @@ function oppOrder() {
 function hpHTML(p) {
   let h = '';
   for (let i = 0; i < p.max; i++) h += `<i class="${i < p.hp ? '' : 'lost'}"></i>`;
-  return `<span class="hp" title="생명 ${Math.max(0, p.hp)}/${p.max}">${h}</span>`;
+  return `<span class="hp" title="생명 ${Math.max(0, p.hp)}/${p.max}">${h}<b class="hpn">${Math.max(0, p.hp)}/${p.max}</b></span>`;
+}
+/* 사거리 · 거리 — 서버가 보낸 내역을 더해 보여 준다.
+   내 쪽 효과(무기 · 조준경 · 로즈 둘란)는 사거리에, 상대 쪽 효과(야생마 · 폴 리그렛)는 거리에 넣어 센다 — 규칙의 "거리 −1" 과 판정이 같다 */
+const sumP = parts => (parts || []).reduce((t, [, v]) => t + v, 0);
+const partsTxt = parts => parts.map(([n, v]) => `${n} ${v}`).join(' + ');
+const reachOf = p => sumP(p.reach);
+const farOf = p => p.seatDist == null ? null : p.seatDist + sumP(p.guard);            // 내가 p 를 볼 때
+const farToMe = p => { const m = myP(); return p.seatDist == null || !m ? null : p.seatDist + sumP(m.guard); };   // p 가 나를 볼 때(자리 거리는 같다)
+const panicReach = p => 1 + sumP(p.reach.slice(1));                                   // 강탈 — 거리 1 + 조준경 · 로즈 둘란
+const seatTxt = p => G().event === 'ambush' ? '매복 1' : `자리 ${p.seatDist}`;
+function calcHTML(pid) {
+  const g = G(), p = g && g.players.find(x => String(x.id) === String(pid)), m = myP();
+  if (!p) return '';
+  const out = [], notes = [];
+  if (g.event === 'lasso') notes.push('올가미 — 앞에 놓인 카드(무기 · 조준경 · 야생마)는 효과가 없어요');
+  if (g.event === 'ambush') notes.push('매복 — 모든 거리가 1에서 시작해요');
+  if (g.event === 'hangover') notes.push('숙취 — 인물 능력(로즈 둘란 · 폴 리그렛)은 꺼져 있어요');
+  const far = m && m.alive && p.id !== me ? farOf(p) : null;
+  if (far == null) {
+    out.push(`<h4>${esc(p.name)} <small>${CHARS[p.char].name}</small></h4>`);
+    out.push(`<p class="eq">생명 <b>${Math.max(0, p.hp)}</b> / ${p.max}</p>`);
+    out.push(`<p class="eq">사거리 <b>${reachOf(p)}</b> = ${partsTxt(p.reach)}</p>`);
+    if (panicReach(p) > 1) out.push(`<p class="eq">강탈 닿는 거리 <b>${panicReach(p)}</b> = 1 + ${partsTxt(p.reach.slice(1))}</p>`);
+    out.push(p.guard.length ? `<p class="eq">남이 볼 때 거리 <b>+${sumP(p.guard)}</b> = ${partsTxt(p.guard)}</p>` : '<p class="eq dim">남이 볼 때 더해지는 거리 없음</p>');
+  } else {
+    const back = farToMe(p), mr = reachOf(m), pr = reachOf(p), pk = panicReach(m);
+    out.push(`<h4>${esc(p.name)} <small>${CHARS[p.char].name} · 생명 ${Math.max(0, p.hp)}/${p.max}</small></h4>`);
+    out.push('<p class="sub">내가 이 사람을 쏠 때</p>');
+    out.push(`<p class="eq">거리 <b>${far}</b> = ${seatTxt(p)}${p.guard.length ? ' + ' + partsTxt(p.guard) : ''}</p>`);
+    out.push(`<p class="eq">내 사거리 <b>${mr}</b> = ${partsTxt(m.reach)}</p>`);
+    out.push(far <= mr ? '<p class="res ok">→ 뱅!이 닿아요</p>' : `<p class="res no">→ 뱅!이 안 닿아요 (${far - mr} 모자람)</p>`);
+    out.push(far <= pk ? `<p class="res ok sm">강탈도 닿아요 (거리 ${pk}까지)</p>` : `<p class="res no sm">강탈은 안 닿아요 (거리 ${pk}까지)</p>`);
+    out.push('<p class="sub">이 사람이 나를 쏠 때</p>');
+    out.push(`<p class="eq">거리 <b>${back}</b> = ${seatTxt(p)}${m.guard.length ? ' + ' + partsTxt(m.guard) : ''}</p>`);
+    out.push(`<p class="eq">이 사람 사거리 <b>${pr}</b> = ${partsTxt(p.reach)}</p>`);
+    out.push(back <= pr ? '<p class="res warn">→ 나를 쏠 수 있어요</p>' : '<p class="res ok">→ 나에게 안 닿아요</p>');
+  }
+  if (p.reach.length > 1 || (m && m.reach.length > 1)) notes.push('조준경 · 로즈 둘란의 "내가 볼 때 거리 −1" 은 사거리 +1 로 적었어요(판정은 같아요)');
+  return `<div class="calc">${out.join('')}${notes.map(n => `<p class="note">${n}</p>`).join('')}</div>`;
 }
 function roleBadge(p) {
   if (!p.role) return '<span class="rb unk" title="정체 모름">?</span>';
@@ -516,7 +555,11 @@ function seatHTML(p) {
   const cls = ['opp', p.status === 'ghost' ? 'ghost' : '', p.status === 'down' ? 'down' : '', p.id === g.turn && !g.over ? 'turn' : '', req && req.to === p.id && !g.over ? 'thinking' : '', req && req.to === p.id && req.to !== g.turn && !g.over ? 'asked' : '', !p.alive ? 'dead' : '',
     targets().has(p.id) ? 'target' : ''].join(' ');
   const mp = myP();
-  const inRange = mp && mp.alive && p.alive && p.dist != null && p.dist <= mp.range;
+  const far = mp && mp.alive && p.id !== me ? farOf(p) : null, inRange = far != null && far <= reachOf(mp);
+  const back = far != null ? farToMe(p) : null, threat = back != null && back <= reachOf(p);
+  const farTip = far == null ? '' : `내가 볼 때 거리 ${far} = ${seatTxt(p)}${p.guard.length ? ' + ' + partsTxt(p.guard) : ''} · 내 사거리 ${reachOf(mp)} → ${inRange ? '뱅!이 닿아요' : '안 닿아요'}`;
+  const reachTip = `사거리 ${reachOf(p)} = ${partsTxt(p.reach)}${back != null ? ` · 나까지 거리 ${back} → ${threat ? '나를 쏠 수 있어요' : '나에게 안 닿아요'}` : ''}`;
+  const mod = (base, parts) => parts.length ? `<small>(${[base, ...parts.map(([, v]) => v)].join('+')})</small>` : '';
   const pl = playerOf(p.id);
   return `<div class="${cls}" data-pid="${p.id}">
     <div class="por" data-char="${p.char}"><img src="${CHAR_IMG(p.char)}" alt="">${ringSVG}${roleBadge(p)}</div>
@@ -524,7 +567,7 @@ function seatHTML(p) {
       <b class="o-name">${p.status === 'ghost' ? '👻 ' : ''}${esc(p.name)}${p.bot ? ' <i class="otag">봇</i>' : ''}${pl && !pl.bot && !pl.connected ? ' <i class="otag off">끊김</i>' : ''}</b>
       <span class="o-char" data-char="${p.char}">${CHARS[p.char].name}${!p.alive && p.role ? ' · ' + ROLES[p.role].name : ''}</span>
       ${hpHTML(p)}
-      <span class="o-meta"><span class="hc" title="손에 든 카드"><img class="mi" src="${ICON('cards')}" alt="">${p.hand}</span>${p.dist != null && p.id !== me ? `<span class="ds ${inRange ? 'in' : ''}" title="내가 보는 거리${inRange ? ' — 사거리 안' : ''}"><img class="mi" src="${ICON('crosshair')}" alt="">${p.dist}</span>` : ''}<span class="rg" title="사거리"><img class="mi" src="${ICON('revolver')}" alt="">${p.range}</span></span>
+      <span class="o-meta"><span class="hc" title="손에 든 카드"><img class="mi" src="${ICON('cards')}" alt="">${p.hand}</span>${far != null ? `<span class="ds ${inRange ? 'in' : 'out'}" data-calc="${p.id}" aria-label="${farTip}"><img class="mi" src="${ICON('crosshair')}" alt="">거리 ${far}${mod(p.seatDist, p.guard)}</span>` : ''}<span class="rg ${threat ? 'threat' : ''}" data-calc="${p.id}" aria-label="${reachTip}"><img class="mi" src="${ICON('revolver')}" alt="">사거리 ${reachOf(p)}${mod(p.reach[0][1], p.reach.slice(1))}</span></span>
     </div>
     <div class="o-tbl">${p.table.map(c => cardHTML(c, 'mini' + (aims.has(c.id) ? ' aim' : ''))).join('')}</div>
     <div class="think">생각 중…</div>
@@ -608,7 +651,7 @@ function renderMe() {
       <b class="me-name">${esc(p.name)} <span class="me-role ${p.role}">${ROLES[p.role].name}</span></b>
       <span class="me-char" data-char="${p.char}"><b>${CHARS[p.char].name}</b> — ${esc(CHARS[p.char].desc)}</span>
       ${hpHTML(p)}
-      <span class="o-meta"><span class="rg"><img class="mi" src="${ICON('revolver')}" alt="">사거리 ${p.range}</span><span class="hc"><img class="mi" src="${ICON('cards')}" alt="">${G().me.hand.length}</span>${bangUsed ? '<span class="used">뱅! 사용함</span>' : ''}</span>
+      <span class="o-meta"><span class="rg" data-calc="${p.id}"><img class="mi" src="${ICON('revolver')}" alt="">사거리 ${reachOf(p)}${p.reach.length > 1 ? `<small class="why">= ${partsTxt(p.reach)}</small>` : ''}</span>${panicReach(p) > 1 ? `<span class="pk" data-calc="${p.id}">강탈 거리 ${panicReach(p)}</span>` : ''}${p.guard.length ? `<span class="gd" data-calc="${p.id}"><img class="mi" src="${ICON('horseshoe')}" alt="">남이 볼 때 +${sumP(p.guard)}</span>` : ''}<span class="hc"><img class="mi" src="${ICON('cards')}" alt="">${G().me.hand.length}</span>${bangUsed ? '<span class="used">뱅! 사용함</span>' : ''}</span>
     </div>
     <div class="me-tbl">${p.table.map(c => cardHTML(c, 'mini')).join('')}</div>`;
 }
@@ -1179,11 +1222,13 @@ document.addEventListener('mouseover', e => {
   const c = e.target.closest('.card[data-cid]');
   const ch = !c && e.target.closest('[data-char]');
   const evc = !c && !ch && e.target.closest('.ecard[data-ev]');
+  const calc = !c && !ch && !evc && e.target.closest('[data-calc]');
   clearTimeout(tipT);
-  if ((!c || c.closest('#tip, .fly')) && !ch && !evc) { hideTip(); return; }
+  if ((!c || c.closest('#tip, .fly')) && !ch && !evc && !calc) { hideTip(); return; }
   tipT = setTimeout(() => {
     if (!tipAt) return;
-    tip.innerHTML = c ? tipCard(DECK[Number(c.dataset.cid)]) : ch ? tipChar(ch.dataset.char) : `<h4>${EVENTS[evc.dataset.ev].name} <small>${EVENTS[evc.dataset.ev].set === 'hn' ? '하이눈' : '한 줌의 카드'}${evc.classList.contains('next') ? ' · 다음 이벤트' : ''}</small></h4><p>${esc(EVENTS[evc.dataset.ev].desc)}</p>`;
+    if (calc && !G()) return;
+    tip.innerHTML = c ? tipCard(DECK[Number(c.dataset.cid)]) : ch ? tipChar(ch.dataset.char) : calc ? calcHTML(calc.dataset.calc) : `<h4>${EVENTS[evc.dataset.ev].name} <small>${EVENTS[evc.dataset.ev].set === 'hn' ? '하이눈' : '한 줌의 카드'}${evc.classList.contains('next') ? ' · 다음 이벤트' : ''}</small></h4><p>${esc(EVENTS[evc.dataset.ev].desc)}</p>`;
     tip.hidden = false; placeTip(tipAt.x, tipAt.y);
   }, tip.hidden ? 420 : 60);
 });
@@ -1197,7 +1242,9 @@ document.addEventListener('click', e => {
   if (e.target.closest('#hand, #pop, #act, .chat, #help, #store .card.can')) return;
   if (e.target.closest('.o-tbl .card.aim, .opp.target, .me.target')) return;
   const c = e.target.closest('.card[data-cid]'), ch = !c && e.target.closest('[data-char]'), ev = !c && !ch && e.target.closest('.ecard[data-ev]');
-  if (c) infoPop(tipCard(DECK[Number(c.dataset.cid)]));
+  const calc = !c && !ch && !ev && e.target.closest('[data-calc]');
+  if (calc) { const h = calcHTML(calc.dataset.calc); if (h) infoPop(h); }
+  else if (c) infoPop(tipCard(DECK[Number(c.dataset.cid)]));
   else if (ch) infoPop(tipChar(ch.dataset.char));
   else if (ev) { const E = EVENTS[ev.dataset.ev]; infoPop(`<h4>${E.name}</h4><p>${esc(E.desc)}</p>`); }
 }, true);
@@ -1212,6 +1259,7 @@ const HELP = {
     <ol><li><b>뽑기</b> — 카드 2장을 뽑는다.</li><li><b>내기</b> — 원하는 만큼 카드를 낸다. 단, <b>뱅!은 한 턴에 한 장</b>. 앞에 놓는 파란 카드는 같은 것을 두 장 놓을 수 없고, 무기는 하나만.</li><li><b>버리기</b> — 손 카드가 남은 생명보다 많으면 그만큼 버린다.</li></ol>
     <h4>거리와 사거리</h4>
     <p>거리는 살아 있는 사람 사이의 자리 수(왼쪽·오른쪽 중 가까운 쪽). 뱅!은 내 <b>사거리</b> 안의 사람에게만 쏠 수 있다(무기가 없으면 콜트 45 · 사거리 1). 야생마는 남이 나를 볼 때 +1, 조준경은 내가 남을 볼 때 −1.</p>
+    <p>화면에는 계산을 끝낸 값이 나온다. 내 쪽 효과(무기 · 조준경 · 로즈 둘란)는 <b>사거리</b>에, 상대 쪽 효과(야생마 · 폴 리그렛)는 <b>거리</b>에 더해 적는다 — <b>거리 ≤ 사거리</b>면 닿는다. 남의 자리에서 <b>거리</b>가 빨가면 내 뱅!이 닿고, <b>사거리</b>가 빨가면 그 사람이 나를 쏠 수 있다. 숫자에 마우스를 올리면(폰은 누르면) 내역이 나온다.</p>
     <h4>쓰러짐</h4>
     <p>생명이 0이 되면 곧바로 맥주를 내 버틸 수 있다. 못 버티면 쓰러지고 정체를 밝힌다. <b>무법자를 쓰러뜨린 사람은 현상금으로 3장</b>을 뽑고, <b>보안관이 부관을 쓰러뜨리면</b> 보안관은 가진 카드를 모두 버린다.</p>
     <h4>뽑기!</h4>

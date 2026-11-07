@@ -20,6 +20,13 @@ for (let i = 0; i < N; i++) {
     // 카드 80장이 그대로인지
     const total = g.limbo.length + g.deck.length + g.pile.length + g.store.length + g.players.reduce((a, p) => a + p.hand.length + p.table.length, 0);
     if (total !== 80) throw new Error('카드 수 ' + total + ' after ' + JSON.stringify(r) + ' game ' + i);
+    // 화면에 보이는 계산(자리 + 상대 야생마·폴 ↔ 무기 + 내 조준경·로즈)이 규칙 판정과 늘 같은지
+    const live = g.alive(), sum = x => x.reduce((t, [, v]) => t + v, 0);
+    for (const a of live) for (const b of live) if (a !== b) {
+      const far = g.seatDist(a, b) + sum(g.guardParts(b)), reach = sum(g.reachParts(a)), extra = reach - g.range(a);
+      if ((far <= reach) !== (g.dist(a, b) <= g.range(a)) || (far <= 1 + extra) !== (g.dist(a, b) <= 1))
+        throw new Error(`거리 계산 표시가 판정과 다름 game ${i} ${a.id}->${b.id} far ${far} reach ${reach} dist ${g.dist(a, b)} range ${g.range(a)}`);
+    }
     if (++s > 20000) throw new Error('끝나지 않음 game ' + i + ' round ' + g.round);
   }
   steps += s; maxSteps = Math.max(maxSteps, s); rounds += g.round;

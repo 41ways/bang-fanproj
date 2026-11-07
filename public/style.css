@@ -646,3 +646,31 @@ body.spec #bEmo { display: none; }
   .intro-foot { margin-top: 12px; font-size: 13px; }
 }
 @media (max-width: 520px) { .role-flip { width: 100%; } .rf-in { margin: 0 auto; } .rf-goal { max-width: 330px; margin-left: auto; margin-right: auto; } }
+
+/* ── 사거리 · 거리 · 생명 숫자 ── */
+.hpn { margin-left: 5px; font: 700 12px var(--kr); color: var(--ink); letter-spacing: -.02em; }
+.char-card .hpn, .me-info .hpn { font-size: 14px; }
+.o-meta [data-calc] { cursor: help; }
+.o-meta > span { white-space: nowrap; }
+.o-meta small { font-size: .82em; margin-left: 2px; opacity: .75; }
+.o-meta .ds.out { opacity: .75; }
+.o-meta .rg.threat { background: rgba(196, 64, 40, .14); color: #8e2410; box-shadow: inset 0 0 0 1px rgba(196, 64, 40, .45); }
+.o-meta .why { font-weight: 400; margin-left: 5px; opacity: .8; }
+.o-meta .pk, .o-meta .gd { background: rgba(60, 38, 18, .1); }
+.tip .calc h4 { margin-bottom: 6px; }
+.calc .sub { margin: 8px 0 2px; font-weight: 700; font-size: 13px; color: var(--ink-2); }
+.calc .eq { margin: 1px 0; font-size: 13.5px; }
+.calc .eq b { font-size: 16px; }
+.calc .dim { color: var(--ink-2); }
+.calc .res { margin: 2px 0 0; font-weight: 700; font-size: 13.5px; }
+.calc .res.sm { font-size: 12px; font-weight: 400; }
+.calc .ok { color: #2d6a2a; } .calc .no { color: var(--ink-2); } .calc .warn { color: var(--red); }
+.calc .note { margin: 8px 0 0; font-size: 11.5px; color: var(--ink-2); line-height: 1.4; }
+.tip:has(.calc) { width: 260px; }
+.info-pop .calc { text-align: left; }
+@media (max-width: 760px) {
+  .o-meta .rg { display: inline-flex !important; }
+  .hpn { font-size: 10px; margin-left: 3px; }
+  .o-meta .why { display: none; }
+  .opp .o-meta small { display: none; }
+}
