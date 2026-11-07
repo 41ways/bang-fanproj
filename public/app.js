@@ -312,7 +312,7 @@ function onState(m) {
   if (m.phase === 'lobby') { queue.length = 0; drawn = null; gateShown = false; sentSeq = ''; if (screen !== 'lobby') closePop(); show('lobby'); renderLobby(); return; }
   if (m.phase === 'intro') { queue.length = 0; drawn = null; gateShown = false; sentSeq = ''; closePop(); show('intro'); renderIntro(); return; }
   // 판 — 연출을 차례로 보여 주며 그린다
-  if (m.reset && !queue.length) $('#logIn').textContent = '';
+  if (m.reset && !queue.length) { $('#logIn').textContent = ''; feedLines.length = 0; }
   queue.push(m);
   pump();
 }
@@ -353,6 +353,7 @@ function renderLobby() {
   $('#optRevive').hidden = S.cfg.exp === 'none';
   $('#tRevive').setAttribute('aria-checked', String(!!S.cfg.revive));
   $('#lRules').textContent = rulesLine(S.cfg);
+  renderExpInfo(host);
   $$('#segMax button').forEach(b => { b.disabled = Number(b.dataset.v) < S.players.length; });
   $('#tPriv').setAttribute('aria-checked', String(!!S.cfg.priv));
   $('#tSpec').setAttribute('aria-checked', String(S.cfg.spec !== false));
@@ -380,6 +381,28 @@ $$('#segChars button').forEach(b => b.onclick = () => { send({ t: 'cfg', chars: 
 $$('#segExp button').forEach(b => b.onclick = () => { send({ t: 'cfg', exp: b.dataset.v }); sfx.pop(); });
 $('#tRevive').onclick = () => send({ t: 'cfg', revive: !S.cfg.revive });
 const EXP_NAME = { none: '기본판', hn: '하이눈 확장', foc: '한 줌의 카드 확장', both: '하이눈 + 한 줌의 카드', either: '하이눈 · 한 줌의 카드 중 하나' };
+/* 기본판 · 확장을 고를 때 무엇이 달라지는지 — 방장은 확장 고르는 줄 바로 아래, 다른 사람은 규칙 줄 아래 */
+const EXP_TXT = {
+  none: '<b>기본판</b> — 카드 80장 · 인물 16명 그대로. 이벤트 없이 손에 든 카드와 앞에 놓은 카드로만 싸워요.<br><small>확장을 고르면 가운데에 <b>이벤트 카드 더미</b>가 생기고, 보안관 차례마다 한 장씩 뒤집혀 다음 장이 나올 때까지 모두의 규칙이 바뀌어요.</small>',
+  hn: '<b>하이눈</b> — 기본판 + 이벤트 카드. 보안관의 <b>두 번째 차례부터</b> 보안관 차례마다 1장씩 뒤집고, 다음 장이 나올 때까지 모두에게 적용돼요. 마지막 장 <b>하이눈</b>은 끝까지 남아 매 차례 생명 1을 잃게 해요 — 판을 끝내는 시계.',
+  foc: '<b>한 줌의 카드</b> — 기본판 + 이벤트 카드(하이눈보다 거친 쪽). 보안관의 <b>두 번째 차례부터</b> 보안관 차례마다 1장씩 뒤집어요. 마지막 장 <b>한 줌의 카드</b>는 끝까지 남아 차례마다 손 카드 수만큼 뱅!을 맞게 해요.',
+  both: '<b>둘 다</b> — 두 세트를 섞어 <b>무작위 12장</b> + 마지막 1장(하이눈 또는 한 줌의 카드). 판마다 나오는 이벤트가 달라요.',
+  either: '<b>둘 중 하나</b> — 시작할 때 하이눈과 한 줌의 카드 중 <b>한 세트를 무작위로</b> 골라요. 어느 쪽인지는 첫 이벤트가 뜰 때 알게 돼요.',
+};
+function renderExpInfo(host) {
+  const el = $('#lExp'), cfg = S.cfg;
+  // 방장은 확장 고르는 줄 바로 아래(옆), 다른 사람은 규칙 줄 아래
+  const anchorEl = host ? $('#segExp').closest('.opt') : $('#lRules');
+  if (el.previousElementSibling !== anchorEl) anchorEl.after(el);
+  const sets = cfg.exp === 'none' ? [] : cfg.exp === 'hn' ? ['hn'] : cfg.exp === 'foc' ? ['foc'] : ['hn', 'foc'];
+  const strip = set => {
+    const ks = Object.keys(EVENTS).filter(k => EVENTS[k].set === set && (cfg.revive || !EVENTS[k].revive));
+    return `<div class="exp-set"><p class="exp-st">${set === 'hn' ? '☀ 하이눈' : '🃏 한 줌의 카드'} <small>${sets.length > 1 || cfg.exp === 'either' ? '후보 ' : ''}${ks.length}장 · 마지막 장은 늘 맨 끝 · 카드에 마우스를 올리면(폰은 누르면) 설명</small></p>
+      <div class="exp-row">${ks.map(k => evCard(k, EVENTS[k].last ? 'last' : '')).join('')}</div></div>`;
+  };
+  const rev = cfg.exp === 'none' ? '' : `<p class="exp-rev">${cfg.revive ? '부활 카드 <b>켜짐</b> — 유령 마을 · 죽은 자가 섞여, 쓰러진 사람이 돌아올 수 있어요.' : '부활 카드 <b>꺼짐</b> — 유령 마을 · 죽은 자는 빼고 해요(쓰러지면 끝).'}</p>`;
+  el.innerHTML = `<p class="exp-txt">${EXP_TXT[cfg.exp] || ''}</p>${rev}${sets.map(strip).join('')}`;
+}
 function rulesLine(cfg) {
   return [EXP_NAME[cfg.exp] + (cfg.exp !== 'none' && cfg.revive ? '(유령 마을 · 죽은 자 포함)' : ''), cfg.chars === 'pick' ? '인물 두 장 중 고르기' : '인물 무작위',
     cfg.turn ? `내 턴 ${cfg.turn}초` : '시간 무제한', `막기 ${cfg.react}초`].join(' · ');
@@ -454,7 +477,7 @@ async function pump() {
       const m = queue.shift();
       const fast = queue.length > 2;               // 밀렸으면 연출을 건너뛰고 따라잡는다
       if (screen !== 'game' && screen !== 'over') show('game');
-      if (m.reset) $('#logIn').textContent = '';
+      if (m.reset) { $('#logIn').textContent = ''; feedLines.length = 0; }
       const had = !!drawn;
       drawn = m;
       addLogs(m.logs);
@@ -543,6 +566,16 @@ function calcHTML(pid) {
   if (p.reach.length > 1 || (m && m.reach.length > 1)) notes.push('조준경 · 로즈 둘란의 "내가 볼 때 거리 −1" 은 사거리 +1 로 적었어요(판정은 같아요)');
   return `<div class="calc">${out.join('')}${notes.map(n => `<p class="note">${n}</p>`).join('')}</div>`;
 }
+/** 그 사람이 방금 한 일 한 줄 — 이번 차례에 한 일은 진하게, 새로 생기면 반짝 */
+const sayShown = {};
+function lastHTML(p) {
+  const L = p.last;
+  if (!L) return '<span class="o-last empty"></span>';
+  const isNew = sayShown[p.id] !== L.n;
+  sayShown[p.id] = L.n;
+  const old = L.n <= (G().sayFrom || 0);
+  return `<span class="o-last ${old ? 'old' : ''} ${isNew ? 'new' : ''}" title="${esc(L.t)}">${esc(L.t)}</span>`;
+}
 function roleBadge(p) {
   if (!p.role) return '<span class="rb unk" title="정체 모름">?</span>';
   return `<span class="rb ${p.role}" title="${ROLES[p.role].name}">${roleImg(p.role)}</span>`;
@@ -567,6 +600,7 @@ function seatHTML(p) {
       <b class="o-name">${p.status === 'ghost' ? '👻 ' : ''}${esc(p.name)}${p.bot ? ' <i class="otag">봇</i>' : ''}${pl && !pl.bot && !pl.connected ? ' <i class="otag off">끊김</i>' : ''}</b>
       <span class="o-char" data-char="${p.char}">${CHARS[p.char].name}${!p.alive && p.role ? ' · ' + ROLES[p.role].name : ''}</span>
       ${hpHTML(p)}
+      ${lastHTML(p)}
       <span class="o-meta"><span class="hc" title="손에 든 카드"><img class="mi" src="${ICON('cards')}" alt="">${p.hand}</span>${far != null ? `<span class="ds ${inRange ? 'in' : 'out'}" data-calc="${p.id}" aria-label="${farTip}"><img class="mi" src="${ICON('crosshair')}" alt="">거리 ${far}${mod(p.seatDist, p.guard)}</span>` : ''}<span class="rg ${threat ? 'threat' : ''}" data-calc="${p.id}" aria-label="${reachTip}"><img class="mi" src="${ICON('revolver')}" alt="">사거리 ${reachOf(p)}${mod(p.reach[0][1], p.reach.slice(1))}</span></span>
     </div>
     <div class="o-tbl">${p.table.map(c => cardHTML(c, 'mini' + (aims.has(c.id) ? ' aim' : ''))).join('')}</div>
@@ -651,6 +685,7 @@ function renderMe() {
       <b class="me-name">${esc(p.name)} <span class="me-role ${p.role}">${ROLES[p.role].name}</span></b>
       <span class="me-char" data-char="${p.char}"><b>${CHARS[p.char].name}</b> — ${esc(CHARS[p.char].desc)}</span>
       ${hpHTML(p)}
+      ${lastHTML(p)}
       <span class="o-meta"><span class="rg" data-calc="${p.id}"><img class="mi" src="${ICON('revolver')}" alt="">사거리 ${reachOf(p)}${p.reach.length > 1 ? `<small class="why">= ${partsTxt(p.reach)}</small>` : ''}</span>${panicReach(p) > 1 ? `<span class="pk" data-calc="${p.id}">강탈 거리 ${panicReach(p)}</span>` : ''}${p.guard.length ? `<span class="gd" data-calc="${p.id}"><img class="mi" src="${ICON('horseshoe')}" alt="">남이 볼 때 +${sumP(p.guard)}</span>` : ''}<span class="hc"><img class="mi" src="${ICON('cards')}" alt="">${G().me.hand.length}</span>${bangUsed ? '<span class="used">뱅! 사용함</span>' : ''}</span>
     </div>
     <div class="me-tbl">${p.table.map(c => cardHTML(c, 'mini')).join('')}</div>`;
@@ -1146,10 +1181,30 @@ $('#bEmo').onclick = () => $('#reacts').classList.toggle('open');
 /* 기록 */
 function addLogs(logs) {
   const el = $('#logIn');
-  for (const l of logs || []) { const d = document.createElement('p'); d.className = 'l ' + (l.cls || ''); d.textContent = l.text; el.appendChild(d); }
+  for (const l of logs || []) { const d = document.createElement('p'); d.className = 'l ' + (l.cls || ''); d.textContent = l.text; el.appendChild(d); feedLines.push(l); }
   while (el.children.length > 250) el.removeChild(el.firstChild);
+  if (feedLines.length > 40) feedLines.splice(0, feedLines.length - 40);
   el.scrollTop = el.scrollHeight;
+  renderFeed((logs || []).length);
 }
+/* 판 가운데 "방금 일어난 일" — 누가 무엇을 냈고 무엇을 골랐는지 모두가 따라오게. 이름은 굵게, 카드는 색으로 */
+const feedLines = [];
+const CARD_RE = new RegExp(`(${[...new Set(Object.values(KINDS).map(k => k.name))].sort((a, b) => b.length - a.length).map(n => n.replace(/[.*+?^${}()|[\]\\!]/g, '\\$&')).join('|')})\\(([^)]{2,4})\\)`, 'g');
+function feedText(t) {
+  let h = esc(t).replace(CARD_RE, '<i class="fc">$1</i><small>$2</small>');
+  const g = G();
+  if (g) for (const p of [...g.players].sort((a, b) => b.name.length - a.name.length)) {
+    const n = esc(p.name);
+    h = h.split(n + ' 님').join(`<b${p.id === me ? ' class="fme"' : ''}>${n}</b> 님`);
+  }
+  return h;
+}
+function renderFeed(added) {
+  const el = $('#feed');
+  const lines = feedLines.slice(-3);
+  el.innerHTML = lines.map((l, i) => `<p class="${l.cls || ''} ${i === lines.length - 1 ? 'now' : ''} ${i >= lines.length - added ? 'in' : ''}">${feedText(l.text)}</p>`).join('');
+}
+$('#feed').onclick = () => $('#log').classList.add('open');
 $('#bLog').onclick = () => $('#log').classList.toggle('open');
 $('#logX').onclick = () => $('#log').classList.remove('open');
 
@@ -1238,7 +1293,9 @@ function tipFor(id) { if (matchMedia('(hover: none)').matches) infoPop(tipCard(D
 /* 손가락으로는 마우스를 올릴 수 없으니 — 누르면 크게 보여 준다(대상을 고르는 중이 아닐 때) */
 function infoPop(html) { openPop(`<div class="info-pop">${html}</div><div class="pop-acts"><button class="wbtn dark" data-x><span>닫기</span></button></div>`); }
 document.addEventListener('click', e => {
-  if (!matchMedia('(hover: none)').matches || screen !== 'game') return;
+  if (!matchMedia('(hover: none)').matches) return;
+  if (screen === 'lobby') { const ev = e.target.closest('#lExp .ecard[data-ev]'); if (ev) { const E = EVENTS[ev.dataset.ev]; infoPop(`<h4>${E.name}</h4><p>${esc(E.desc)}</p>`); } return; }
+  if (screen !== 'game') return;
   if (e.target.closest('#hand, #pop, #act, .chat, #help, #store .card.can')) return;
   if (e.target.closest('.o-tbl .card.aim, .opp.target, .me.target')) return;
   const c = e.target.closest('.card[data-cid]'), ch = !c && e.target.closest('[data-char]'), ev = !c && !ch && e.target.closest('.ecard[data-ev]');

@@ -674,3 +674,45 @@ body.spec #bEmo { display: none; }
   .o-meta .why { display: none; }
   .opp .o-meta small { display: none; }
 }
+
+/* ── 모두가 따라오게: 가운데 소식 · 자리마다 방금 한 일 ── */
+.feed { position: absolute; left: 50%; top: calc(52% + 96px); transform: translateX(-50%); z-index: 2; width: min(620px, 56%); display: flex; flex-direction: column; gap: 3px; cursor: pointer; pointer-events: auto; }
+.feed p { margin: 0; padding: 4px 12px; border-radius: 8px; background: rgba(20, 12, 6, .55); color: rgba(255, 240, 215, .72); font-size: 13px; line-height: 1.4; text-align: center; transition: opacity .3s; }
+.feed p.now { background: rgba(250, 236, 205, .94); color: var(--ink); font-size: 15px; box-shadow: 0 4px 14px rgba(0, 0, 0, .45); }
+.feed p.in { animation: feedIn .45s ease-out; }
+@keyframes feedIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.feed b { color: #ffe3a6; } .feed p.now b { color: #6b2a10; } .feed b.fme { text-decoration: underline; text-underline-offset: 3px; }
+.feed .fc { font-style: normal; font-weight: 700; color: #ffcf7a; } .feed p.now .fc { color: #8e2410; }
+.feed small { font-size: .78em; opacity: .7; margin-left: 1px; }
+.feed p.turn { font-weight: 700; } .feed p.die { color: #ffb4a2; } .feed p.now.die { color: #8e2410; }
+.feed p.event { background: rgba(122, 43, 24, .75); color: #ffe9c7; }
+.o-last { display: block; max-width: 100%; margin-top: 3px; padding: 1px 7px; border-radius: 6px; font-size: 12px; line-height: 1.45; background: #fff6df; color: #5a2a10; box-shadow: inset 0 0 0 1px rgba(122, 43, 24, .35); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 700; }
+.o-last::before { content: '▸ '; opacity: .6; }
+.o-last.old { background: transparent; box-shadow: none; color: var(--ink-2); font-weight: 400; }
+.o-last.empty { display: none; }
+.o-last.new { animation: lastIn 1.2s ease-out; }
+@keyframes lastIn { 0% { background: #ffd36b; transform: scale(1.06); } 100% { background: #fff6df; transform: none; } }
+.me-info .o-last { font-size: 13px; }
+/* 대기실 — 확장 설명 */
+.exp-info { margin: 8px 0 4px; padding: 10px 14px; border-radius: 10px; background: rgba(255, 248, 230, .78); box-shadow: inset 0 0 0 1px rgba(60, 38, 18, .25); color: var(--ink); flex-basis: 100%; }
+.exp-info .exp-txt { margin: 0; font-size: 14px; line-height: 1.55; }
+.exp-info .exp-txt small { display: block; margin-top: 4px; font-size: 12.5px; color: var(--ink-2); }
+.exp-info .exp-rev { margin: 6px 0 0; font-size: 13px; color: var(--ink-2); }
+.exp-set { margin-top: 10px; }
+.exp-st { margin: 0 0 6px; font-weight: 700; font-size: 13.5px; } .exp-st small { font-weight: 400; color: var(--ink-2); font-size: 12px; margin-left: 6px; }
+.exp-row { display: flex; flex-wrap: wrap; gap: 9px; }
+.exp-row .ecard { width: 66px; height: 92px; box-shadow: 0 0 0 2px #7a2b18, 0 2px 6px rgba(0, 0, 0, .35); }
+.exp-row .ecard.foc { box-shadow: 0 0 0 2px #3b4f2a, 0 2px 6px rgba(0, 0, 0, .35); }
+.exp-row .ecard.last { box-shadow: 0 0 0 3px #c9a24a, 0 2px 6px rgba(0, 0, 0, .35); }
+.exp-row .ecard b { font-size: 10.5px; margin-top: 2px; }
+.exp-row .ecard small { display: none; }
+.exp-row .ecard img { height: 66%; }
+@media (max-width: 760px) {
+  .feed { position: sticky; left: auto; top: auto; bottom: 4px; transform: none; width: auto; margin: 4px 10px 4px; z-index: 6; }
+  .feed p:not(.now) { background: rgba(20, 12, 6, .82); }
+  .feed p { font-size: 11.5px; padding: 3px 8px; } .feed p.now { font-size: 13px; }
+  .feed p:not(.now):not(:nth-last-child(2)) { display: none; }
+  .o-last { font-size: 10px; padding: 0 5px; margin-top: 2px; white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.3; }
+  .o-last.empty { display: none; }
+  .exp-row { gap: 6px; } .exp-row .ecard { width: 52px; height: 74px; } .exp-row .ecard b { font-size: 9px; }
+}

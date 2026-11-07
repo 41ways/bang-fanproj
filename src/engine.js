@@ -78,6 +78,11 @@ export class Game {
   C(id) { return this.cards[id]; }
   alive() { return this.players.filter(p => p.alive); }
   log(text, cls) { this.logs.push({ n: this.logN = (this.logN || 0) + 1, text, cls }); if (this.logs.length > 400) this.logs.splice(0, 100); }
+  /** 그 사람이 방금 한 일 — 자리마다 짧게 보여 준다(모두가 따라오게). 숨겨야 할 것(손 카드 · 킷 칼슨이 고른 것)은 적지 않는다 */
+  say(p, t) { if (p) p.last = { t, n: this.sayN = (this.sayN || 0) + 1 }; }
+  names(cs) { return cs.map(c => this.cn(c)).join(', '); }
+  sn(c) { return cardName(this.C(c)); }
+  snames(cs) { return cs.map(c => this.sn(c)).join(', '); }
   emit(e) { this.fx.push(e); }
   nm(p) { return p.name; }
   cn(c) { return cardName(this.C(c)) + '(' + cardTag(this.C(c)) + ')'; }
@@ -406,6 +411,7 @@ export class Game {
   }
 
   *turnOf(p, extra) {
+    this.turnSay = this.sayN || 0;              // 이번 차례가 시작된 뒤에 한 일만 진하게 보인다
     this.bangs = 0;
     this.mustPlay = null;
     this.log(`— ${this.nm(p)} 님의 차례 —`, 'turn');
@@ -439,6 +445,7 @@ export class Game {
       if (boom === false) {
         this.toPile(dyn);
         this.log(`💥 다이너마이트가 ${this.nm(p)} 님 앞에서 터졌습니다!`, 'hit');
+        this.say(p, '💥 다이너마이트 폭발');
         this.emit({ fx: 'boom', id: p.id });
         yield* this.hurt(p, 3, null);
         if (!p.alive) return;
@@ -446,6 +453,7 @@ export class Game {
         const q = this.next(p);
         q.table.push(dyn);
         this.log(`다이너마이트가 ${this.nm(q)} 님에게 넘어갑니다.`);
+        this.say(p, `다이너마이트 → ${q.name}`);
         this.emit({ fx: 'pass', from: p.id, to: q.id, c: dyn });
       }
     }
@@ -456,8 +464,9 @@ export class Game {
       else {
         this.fromTable(p, jail);
         this.toPile(jail);
-        if (!free) { this.log(`${this.nm(p)} 님은 감옥에서 턴을 거릅니다.`); this.emit({ fx: 'jailed', id: p.id }); return; }
+        if (!free) { this.log(`${this.nm(p)} 님은 감옥에서 턴을 거릅니다.`); this.say(p, '감옥 — 턴을 거름'); this.emit({ fx: 'jailed', id: p.id }); return; }
         this.log(`${this.nm(p)} 님이 감옥에서 풀려났습니다.`);
+        this.say(p, '감옥에서 풀려남');
       }
     }
 
@@ -470,6 +479,7 @@ export class Game {
         skip = true;
         if (p.hp < p.max) { p.hp++; this.emit({ fx: 'heal', id: p.id }); }
         this.log(`독한 술 — ${this.nm(p)} 님이 뽑기를 건너뛰고 생명 1을 되찾았습니다.`, 'heal');
+        this.say(p, '독한 술 — 뽑기 대신 +1');
       }
     }
     if (!skip && this.ev('peyote') && p.status !== 'ghost') { yield* this.peyote(p); skip = true; }
@@ -490,7 +500,8 @@ export class Game {
         for (const c of r.cs) { this.fromHand(p, c); this.toPile(c); }
         this.emit({ fx: 'discard', id: p.id, cs: r.cs });
         this.drawTo(p, r.cs.length);
-        this.log(`목장 — ${this.nm(p)} 님이 카드 ${r.cs.length}장을 바꿨습니다.`);
+        this.log(`목장 — ${this.nm(p)} 님이 카드 ${r.cs.length}장(${this.names(r.cs)})을 바꿨습니다.`);
+        this.say(p, `목장 — ${r.cs.length}장 바꿈`);
       }
     }
 
@@ -501,7 +512,7 @@ export class Game {
         this.suzy();
         if (!p.hand.length) { this.log(`${this.nm(p)} 님은 손에 카드가 없어 턴을 마칩니다.`); break; }
         const r = yield* this.ask({ to: p.id, kind: 'play', moves: this.moves(p) });
-        if (r.a === 'end') break;
+        if (r.a === 'end') { this.log(`${this.nm(p)} 님이 턴을 끝냅니다.`); break; }
         if (r.a === 'sid') { yield* this.sidHeal(p, r.cs); continue; }
         if (r.c === this.mustPlay || r.c2 === this.mustPlay) this.mustPlay = null;
         yield* this.play(p, r.c, r.t, r.tc, r.c2);
@@ -515,10 +526,12 @@ export class Game {
       if (this.ev('mine')) {
         for (const c of r.cs) { this.fromHand(p, c); this.deck.push(c); }
         this.log(`버려진 광산 — ${this.nm(p)} 님이 카드 ${n}장을 더미 위에 엎어 버렸습니다.`);
+        this.say(p, `${n}장 엎어 버림`);
         this.emit({ fx: 'discard', id: p.id, n: r.cs.length, deck: true });
       } else {
         for (const c of r.cs) { this.fromHand(p, c); this.toPile(c); }
-        this.log(`${this.nm(p)} 님이 카드 ${n}장을 버렸습니다.`);
+        this.log(`${this.nm(p)} 님이 손이 넘쳐 ${n}장을 버렸습니다: ${this.names(r.cs)}`);
+        this.say(p, `${n}장 버림 — ${this.snames(r.cs)}`);
         this.emit({ fx: 'discard', id: p.id, cs: r.cs });
       }
       break;
@@ -552,6 +565,7 @@ export class Game {
         const c = blues.length === 1 ? blues[0] : (yield* this.ask({ to: q.id, kind: 'daltons', cards: blues })).c;
         this.fromTable(q, c); this.toPile(c);
         this.log(`달튼 형제 — ${this.nm(q)} 님이 ${this.cnj(c, '을', '를')} 버렸습니다.`);
+        this.say(q, `달튼 형제 — ${this.sn(c)} 버림`);
         this.emit({ fx: 'lose', id: q.id, c });
       }
     }
@@ -593,6 +607,7 @@ export class Game {
           const t = this.P(r.t);
           p.hp--; t.hp = Math.min(t.max, t.hp + 1);
           this.log(`피를 나눈 형제 — ${this.nm(p)} 님이 ${this.nm(t)} 님에게 생명 1을 나눠 줬습니다.`, 'heal');
+          this.say(p, `생명 1 → ${t.name}`);
           this.emit({ fx: 'hurt', id: p.id, n: 1 }); this.emit({ fx: 'heal', id: t.id });
         }
       }
@@ -608,8 +623,8 @@ export class Game {
       const red = this.C(c).s === 'H' || this.C(c).s === 'D';
       const ok = (r.a === 'red') === red;
       this.emit({ fx: 'flip', id: p.id, cs: [c], pick: c, ok, what: '페요테' });
-      if (ok) { p.hand.push(c); this.log(`페요테 — ${this.nm(p)} 님이 ${r.a === 'red' ? '빨강' : '검정'}을 맞혀 ${this.cnj(c, '을', '를')} 가졌습니다.`); }
-      else { this.toPile(c); this.log(`페요테 — ${this.nm(p)} 님이 틀렸습니다(${this.cn(c)}).`); return; }
+      if (ok) { p.hand.push(c); this.log(`페요테 — ${this.nm(p)} 님이 ${r.a === 'red' ? '빨강' : '검정'}을 맞혀 ${this.cnj(c, '을', '를')} 가졌습니다.`); this.say(p, `페요테 — ${r.a === 'red' ? '빨강' : '검정'} 맞힘`); }
+      else { this.toPile(c); this.log(`페요테 — ${this.nm(p)} 님이 ${r.a === 'red' ? '빨강' : '검정'}이라 했지만 틀렸습니다(${this.cn(c)}).`); this.say(p, `페요테 — 틀림(${this.sn(c)})`); return; }
     }
   }
 
@@ -643,17 +658,23 @@ export class Game {
     const ok = judge(pick);
     const why = (this.ev('blessing') || this.ev('curse')) && this.suitOf(pick) !== this.C(pick).s ? ` (${this.evName()} 때문에)` : '';
     this.log(`${this.nm(p)} 님 ${what} 뽑기!: ${got.map(c => this.cn(c)).join(', ')} → ${ok ? '성공' : '실패'}${why}`);
+    this.say(p, `${what} 뽑기! ${ok ? '성공' : '실패'}`);
     this.emit({ fx: 'flip', id: p.id, cs: got, pick, ok, what, ov: this.ev('blessing') ? 'H' : this.ev('curse') ? 'S' : null });
     return ok;
   }
 
   /** 1단계 뽑기. 갈증이면 1장(능력 없이), 열차 도착이면 1장 더, 유령은 3장 */
   *drawPhase(p) {
-    if (p.status === 'ghost') return void this.drawTo(p, 3, true);
-    if (this.ev('thirst')) return void this.drawTo(p, 1, true);
-    const extra = this.ev('train') ? 1 : 0;
-    yield* this.drawTwo(p);
-    if (extra) this.drawTo(p, extra, true);
+    const n0 = p.hand.length;
+    if (p.status === 'ghost') this.drawTo(p, 3, true);
+    else if (this.ev('thirst')) this.drawTo(p, 1, true);
+    else {
+      yield* this.drawTwo(p);
+      if (this.ev('train')) this.drawTo(p, 1, true);
+    }
+    const got = p.hand.length - n0;
+    if (!p.last || !p.last.draw) { this.log(`${this.nm(p)} 님이 카드 ${got}장을 뽑았습니다.`); this.say(p, `${got}장 뽑음`); }
+    p.last.draw = false;
   }
 
   *drawTwo(p) {
@@ -664,7 +685,8 @@ export class Game {
         const c = t.hand.splice(Math.floor(this.rng() * t.hand.length), 1)[0];
         p.hand.push(c);
         if (this.phaseDrawn) this.phaseDrawn.push(c);
-        this.log(`${this.nm(p)} 님이 ${this.nm(t)} 님의 손에서 1장을 가져왔습니다.`);
+        this.log(`${this.nm(p)} 님이 첫 장을 ${this.nm(t)} 님의 손에서 가져왔습니다.`);
+        this.say(p, `${t.name} 손에서 1장 + 더미 1장`); p.last.draw = true;
         this.emit({ fx: 'steal', from: t.id, to: p.id });
         this.drawTo(p, 1, true);
         return;
@@ -676,7 +698,8 @@ export class Game {
         const c = this.pile.pop();
         p.hand.push(c);
         if (this.phaseDrawn) this.phaseDrawn.push(c);
-        this.log(`${this.nm(p)} 님이 버린 카드에서 ${this.cnj(c, '을', '를')} 가져왔습니다.`);
+        this.log(`${this.nm(p)} 님이 첫 장으로 버린 카드의 ${this.cnj(c, '을', '를')} 가져왔습니다.`);
+        this.say(p, `버린 카드 ${this.sn(c)} + 더미 1장`); p.last.draw = true;
         this.emit({ fx: 'draw', to: p.id, n: 1, from: 'pile' });
         this.drawTo(p, 1, true);
         return;
@@ -692,6 +715,7 @@ export class Game {
         for (const c of three) if (c !== r.c) { p.hand.push(c); if (this.phaseDrawn) this.phaseDrawn.push(c); }
         if (this.ev('mine')) this.pile.push(r.c); else this.deck.push(r.c);
         this.log(`${this.nm(p)} 님이 3장을 보고 2장을 골랐습니다.`);
+        this.say(p, '3장 보고 2장 고름'); p.last.draw = true;
       } else { p.hand.push(...three); if (this.phaseDrawn) this.phaseDrawn.push(...three); }
       this.emit({ fx: 'draw', to: p.id, n: Math.min(2, three.length) });
       return;
@@ -704,6 +728,7 @@ export class Game {
         if (this.phaseDrawn) this.phaseDrawn.push(c);
         const red = this.suitOf(c) === 'H' || this.suitOf(c) === 'D';
         this.log(`${this.nm(p)} 님이 두 번째 장 ${this.cnj(c, '을', '를')} 보여 줍니다${red ? ' — 1장 더!' : '.'}`);
+        this.say(p, `두 번째 장 ${this.sn(c)} 공개${red ? ' → 1장 더' : ''}`); p.last.draw = true;
         this.emit({ fx: 'show', id: p.id, c });
         if (red) this.drawTo(p, 1, true);
       }
@@ -715,7 +740,8 @@ export class Game {
   *sidHeal(p, cs) {
     for (const c of cs) { this.fromHand(p, c); this.toPile(c); }
     p.hp = Math.min(p.max, p.hp + 1);
-    this.log(`${this.nm(p)} 님이 카드 2장을 버리고 생명 1을 되찾았습니다.`, 'heal');
+    this.log(`${this.nm(p)} 님이 카드 2장(${this.names(cs)})을 버리고 생명 1을 되찾았습니다.`, 'heal');
+    this.say(p, `2장 버리고 +1 (${this.snames(cs)})`);
     this.emit({ fx: 'heal', id: p.id });
   }
 
@@ -729,13 +755,14 @@ export class Game {
     const T = t != null ? this.P(t) : null;
 
     if (def.blue) {
-      if (k === 'jail') { T.table.push(c); this.hit_(p, T); this.log(`${this.nm(p)} 님이 ${this.nm(T)} 님을 감옥에 넣었습니다.`); this.emit({ fx: 'equip', id: T.id, c, by: p.id }); return; }
+      if (k === 'jail') { T.table.push(c); this.hit_(p, T); this.log(`${this.nm(p)} 님이 ${this.nm(T)} 님을 감옥에 넣었습니다.`); this.say(p, `감옥 → ${T.name}`); this.emit({ fx: 'equip', id: T.id, c, by: p.id }); return; }
       if (WEAPONS.includes(k)) {
         const old = p.table.find(x => WEAPONS.includes(this.C(x).k));
-        if (old) { this.fromTable(p, old); this.toPile(old); }
+        if (old) { this.fromTable(p, old); this.toPile(old); this.log(`${this.nm(p)} 님이 쓰던 ${this.cnj(old, '을', '를')} 버리고 무기를 바꿉니다.`); }
       }
       p.table.push(c);
       this.log(`${this.nm(p)} 님이 ${this.cnj(c, '을', '를')} 앞에 놓았습니다.`);
+      this.say(p, `${def.name} 놓음`);
       this.emit({ fx: 'equip', id: p.id, c });
       return;
     }
@@ -749,9 +776,11 @@ export class Game {
         this.hit_(p, T);
         if (c2 != null) {
           this.log(`🎯 저격수 — ${this.nm(p)} 님이 뱅! 두 장으로 ${this.nm(T)} 님을 노립니다. 빗나감! 2장이 있어야 막습니다.`, 'atk');
+          this.say(p, `저격(뱅! 2장) → ${T.name}`);
           yield* this.shoot(p, T, 2, '저격');
         } else if (tc != null) {
           this.log(`🪃 도탄 — ${this.nm(p)} 님이 ${this.nm(T)} 님의 ${this.cnj(tc, '을', '를')} 겨냥합니다.`, 'atk');
+          this.say(p, `도탄 → ${T.name}의 ${this.sn(tc)}`);
           this.emit({ fx: 'shot', from: p.id, to: T.id });
           if (!(yield* this.dodge(p, T, 1, 'ricochet', 0, tc)) && T.table.includes(tc)) {
             this.fromTable(T, tc); this.toPile(tc);
@@ -761,10 +790,12 @@ export class Game {
         } else {
           this.bangs++;
           this.log(`${this.nm(p)} 님이 ${this.nm(T)} 님에게 ${this.cnj(c, '을', '를')} 쏩니다.`, 'atk');
+          this.say(p, `${card.k === 'missed' ? '빗나감!을 뱅!으로' : '뱅!'} → ${T.name}`);
           yield* this.shoot(p, T, this.ab(p, 'slab') ? 2 : 1, '뱅!');
         }
         break;
       case 'beer':
+        this.say(p, '맥주');
         if (!this.canBeer() || p.hp >= p.max) { this.log(`${this.nm(p)} 님이 맥주를 마셨지만 아무 효과가 없습니다.`); break; }
         p.hp = Math.min(p.max, p.hp + 1);
         this.log(`${this.nm(p)} 님이 맥주를 마셨습니다.`, 'heal');
@@ -772,21 +803,25 @@ export class Game {
         break;
       case 'saloon':
         this.log(`${this.nm(p)} 님이 주점을 열었습니다. 모두 생명 1을 되찾습니다.`, 'heal');
+        this.say(p, '주점 — 모두 +1');
         for (const q of this.alive()) if (q.hp < q.max && q.status !== 'ghost') { q.hp++; this.emit({ fx: 'heal', id: q.id }); }
         break;
       case 'stagecoach':
         this.log(`${this.nm(p)} 님이 역마차로 2장을 뽑았습니다.`);
+        this.say(p, '역마차 — 2장 뽑음');
         this.drawTo(p, 2);
         break;
       case 'wellsfargo':
         this.log(`${this.nm(p)} 님이 웰스 파고로 3장을 뽑았습니다.`);
+        this.say(p, '웰스 파고 — 3장 뽑음');
         this.drawTo(p, 3);
         break;
       case 'generalstore': {
         const live = [p, ...this.others(p)];
         this.store = [];
         for (let i = 0; i < live.length; i++) { const x = this.draw(); if (x != null) this.store.push(x); }
-        this.log(`${this.nm(p)} 님이 잡화점을 열었습니다.`);
+        this.log(`${this.nm(p)} 님이 잡화점을 열었습니다: ${this.names(this.store)}`);
+        this.say(p, '잡화점');
         this.emit({ fx: 'store', cs: [...this.store] });
         for (const q of live) {
           if (!this.store.length) break;
@@ -798,6 +833,7 @@ export class Game {
           this.store.splice(this.store.indexOf(pick), 1);
           q.hand.push(pick);
           this.log(`${this.nm(q)} 님이 잡화점에서 ${this.cnj(pick, '을', '를')} 가져갔습니다.`);
+          this.say(q, `잡화점에서 ${this.sn(pick)}`);
           this.emit({ fx: 'take', id: q.id, c: pick });
         }
         for (const x of this.store) this.toPile(x);
@@ -813,16 +849,19 @@ export class Game {
         if (k === 'panic') {
           p.hand.push(got);
           this.log(`${this.nm(p)} 님이 ${this.nm(T)} 님에게서 ${tc === 'hand' ? '손의 카드 1장을' : this.cnj(got, '을', '를')} 빼앗았습니다.`, 'atk');
+          this.say(p, `강탈 → ${T.name}의 ${tc === 'hand' ? '손 카드' : this.sn(got)}`);
           this.emit({ fx: 'steal', from: T.id, to: p.id, c: tc === 'hand' ? null : got });
         } else {
           this.toPile(got);
-          this.log(`${this.nm(p)} 님의 캣 벌로우 — ${this.nm(T)} 님이 ${this.cnj(got, '을', '를')} 버렸습니다.`, 'atk');
+          this.log(`${this.nm(p)} 님의 캣 벌로우 — ${this.nm(T)} 님이 ${tc === 'hand' ? '손에서 ' : ''}${this.cnj(got, '을', '를')} 버렸습니다.`, 'atk');
+          this.say(p, `캣 벌로우 → ${T.name}의 ${this.sn(got)}`);
           this.emit({ fx: 'lose', id: T.id, c: got });
         }
         break;
       }
       case 'gatling':
         this.log(`${this.nm(p)} 님이 기관총을 쏩니다!`, 'atk');
+        this.say(p, '기관총 → 모두');
         this.emit({ fx: 'gatling', id: p.id });
         for (const q of this.others(p)) {
           if (!q.alive) continue;
@@ -833,6 +872,7 @@ export class Game {
         break;
       case 'indians':
         this.log(`${this.nm(p)} 님이 인디언!을 불렀습니다.`, 'atk');
+        this.say(p, '인디언! → 모두');
         this.emit({ fx: 'indians', id: p.id });
         for (const q of this.others(p)) {
           if (!q.alive) continue;
@@ -841,7 +881,7 @@ export class Game {
           const r = q.hand.length
             ? yield* this.ask({ to: q.id, kind: 'react', why: 'indians', from: p.id, need: 1, ok })
             : { a: 'take' };
-          if (r.a === 'cards') { this.spend(q, r.cs); this.log(`${this.nm(q)} 님이 뱅!을 버려 피했습니다.`); }
+          if (r.a === 'cards') { this.spend(q, r.cs); this.log(`${this.nm(q)} 님이 ${this.cnj(r.cs[0], '을', '를')} 버려 피했습니다.`); this.say(q, `${this.sn(r.cs[0])} 버려 피함`); }
           else yield* this.hurt(q, 1, p);
           if (!p.alive) return;
         }
@@ -849,6 +889,7 @@ export class Game {
       case 'duel': {
         this.hit_(p, T);
         this.log(`${this.nm(p)} 님이 ${this.nm(T)} 님에게 결투를 신청했습니다!`, 'atk');
+        this.say(p, `결투 → ${T.name}`);
         let cur = T, oth = p;
         for (;;) {
           const ok = this.ab(cur, 'calamity') ? ['bang', 'missed'] : ['bang'];
@@ -859,7 +900,8 @@ export class Game {
           // 결투를 건 사람이 지면 아무도 탓하지 않는다 — 현상금도, 엘 그링고도 없다(FAQ Q21 · Q23)
           if (r.a === 'take') { yield* this.hurt(cur, 1, cur === p ? null : oth); break; }
           this.spend(cur, r.cs);
-          this.log(`${this.nm(cur)} 님이 뱅!을 버렸습니다.`);
+          this.log(`${this.nm(cur)} 님이 결투에서 ${this.cnj(r.cs[0], '을', '를')} 버렸습니다.`);
+          this.say(cur, `결투 — ${this.sn(r.cs[0])} 버림`);
           [cur, oth] = [oth, cur];
         }
         break;
@@ -889,16 +931,18 @@ export class Game {
         if (yield* this.flip(T, s => s.s === 'H', '술통')) {
           need--;
           this.log(`술통 성공 — ${this.nm(T)} 님이 술통 뒤로 피했습니다.`);
+          this.say(T, '술통으로 피함');
           this.emit({ fx: 'dodge', id: T.id });
           if (need <= 0) return true;
           this.log(`그래도 빗나감!이 ${need}장 더 필요합니다.`);
-        } else this.log('술통 실패!');
+        } else { this.log(`${this.nm(T)} 님의 술통 실패!`); this.say(T, '술통 실패'); }
         continue;
       }
       if (r.a === 'cards') {
         this.spend(T, r.cs);
         need -= r.cs.length;
-        this.log(`${this.nm(T)} 님: 빗나감!`);
+        this.log(`${this.nm(T)} 님이 막았습니다: ${this.names(r.cs)}`);
+        this.say(T, `막음 — ${this.snames(r.cs)}`);
         this.emit({ fx: 'dodge', id: T.id });
         if (need <= 0) return true;
         this.log(`하지만 ${this.nm(T)} 님은 빗나감!이 ${need}장 더 필요합니다.`);
@@ -913,7 +957,8 @@ export class Game {
   *hurt(p, n, src) {
     if (p.status === 'ghost') { this.log(`👻 ${this.nm(p)} 님은 유령이라 다치지 않습니다.`); return; }
     p.hp -= n;
-    this.log(`${this.nm(p)} 님이 생명 ${n}을 잃었습니다.`, 'hit');
+    this.log(`${this.nm(p)} 님이 생명 ${n}을 잃었습니다. (남은 생명 ${Math.max(0, p.hp)})`, 'hit');
+    this.say(p, `생명 −${n} (남은 ${Math.max(0, p.hp)})`);
     this.emit({ fx: 'hurt', id: p.id, n });
     if (p.hp <= 0) {
       yield* this.dying(p, src);
@@ -943,6 +988,7 @@ export class Game {
       if (r.a === 'beer') {
         this.fromHand(p, r.c); this.toPile(r.c); p.hp++;
         this.log(`${this.nm(p)} 님이 맥주로 버텼습니다!`, 'heal');
+        this.say(p, '맥주로 버팀!');
         this.emit({ fx: 'heal', id: p.id });
       } else if (r.a === 'sid') yield* this.sidHeal(p, r.cs);
     }
@@ -957,6 +1003,7 @@ export class Game {
     if (this.firstOut == null) this.firstOut = p.id;
     p.status = back ? 'down' : 'out';
     this.log(`☠ ${this.nm(p)} 님이 쓰러졌습니다. 정체는 ${roleKo(p.role)}!${back ? ' (이벤트로 돌아올 수도 있습니다)' : ''}`, 'die');
+    this.say(p, '☠ 쓰러짐');
     this.emit({ fx: 'die', id: p.id, role: p.role });
     const all = [...p.table, ...p.hand];
     p.hand = []; p.table = [];
@@ -1033,12 +1080,12 @@ export class Game {
         hand: p.hand.length, table: p.table.map(card),
         range: this.range(p),
         dist: me && me.alive && p.alive ? this.dist(me, p) : null,
-        reach: this.reachParts(p), guard: this.guardParts(p),
+        reach: this.reachParts(p), guard: this.guardParts(p), last: p.last || null,
         seatDist: me && me.alive && p.alive ? this.seatDist(me, p) : null,
       })),
       me: me ? { id: me.id, hand: me.hand.map(card), mustPlay: this.turn === me.id ? this.mustPlay : null } : null,
       req: null,
-      bangs: this.bangs, bangLimit: me ? this.bangLimit(me) : 1,
+      bangs: this.bangs, bangLimit: me ? this.bangLimit(me) : 1, sayFrom: this.turnSay || 0,
     };
     if (q) {
       v.req = { kind: q.kind, to: q.to, seq: q.seq, why: q.why, from: q.from, need: q.need, n: q.n, left: q.left };
