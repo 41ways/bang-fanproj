@@ -6,6 +6,7 @@
  * "BANG!"이 터지는 것을 다 보여 준 뒤에 다음 상태로 넘어간다 — 서버도 그만큼 봇을 기다리게 한다.
  */
 import { KINDS, CHARS, ROLES, SUITS, RANKS, DECK, EVENTS, ROLES_BY_N } from './cards.js';
+import { advise } from './guide.js';
 
 const $ = s => document.querySelector(s);
 const $$ = s => Array.from(document.querySelectorAll(s));
@@ -539,6 +540,30 @@ const G = () => drawn && drawn.g;
 const myReq = () => { const g = G(); return g && g.req && g.req.to === me && !drawn.auto && reqKey(g.req) !== sentSeq ? g.req : null; };
 const myP = () => (G() && me != null ? G().players.find(p => p.id === me) : null);
 
+/* 초보자 가이드 — 위 🧭 단추로 켜고 끈다. 처음엔 켜져 있다 */
+const NO_GD = { lines: [], card: null, cards: [], target: null, store: null };
+let guideOn = ls.get('bang.guide') !== '0', gd = NO_GD;
+function renderGuide() {
+  const el = $('#guide'), L = gd.lines;
+  el.hidden = !guideOn || !L.length || screen !== 'game';
+  if (el.hidden) return fitFeed();
+  const html = `<b class="g-ic">🧭</b><div class="g-in">${L.map((t, i) => `<p class="${i === 0 && L.length > 1 ? 'goal' : ''}">${t}</p>`).join('')}</div>`;
+  if (el.dataset.html !== html) { el.dataset.html = html; el.innerHTML = html; el.classList.remove('in'); void el.offsetWidth; el.classList.add('in'); }
+  fitFeed();
+}
+function syncGuide() {
+  const b = $('#bGuide');
+  b.setAttribute('aria-pressed', guideOn); b.classList.toggle('off', !guideOn);
+  b.querySelector('.gt-s').textContent = guideOn ? '켬' : '끔';
+  b.title = guideOn ? '초보자 가이드 끄기' : '초보자 가이드 켜기';
+}
+$('#bGuide').onclick = () => {
+  guideOn = !guideOn; ls.set('bang.guide', guideOn ? '1' : '0'); syncGuide();
+  toast(guideOn ? '🧭 가이드를 켰어요 — 할 일과 추천 카드를 알려 줘요' : '가이드를 껐어요');
+  if (screen === 'game' && G()) renderGame();
+};
+syncGuide();
+
 let gateShown = false;
 function renderGame() {
   const g = G(); if (!g) return;
@@ -546,7 +571,8 @@ function renderGame() {
   if (pk && !$('#pop').hidden && (!myReq() || myReq().kind !== pk)) closePop();
   if (!g.req || g.req.seq !== selSeq) { resetSel(); selSeq = g.req ? g.req.seq : 0; }
   document.body.classList.toggle('my-turn', g.turn === me && !g.over);
-  renderOpps(); renderCenter(); renderMe(); renderHand(); renderAct();
+  gd = guideOn && !isSpec() ? advise(g, me, myReq(), sel, mode) : NO_GD;
+  renderOpps(); renderCenter(); renderMe(); renderHand(); renderAct(); renderGuide();
   const gateLeft = (drawn.gate || 0) - (Date.now() + skew);
   if (gateLeft > 300 && !gateShown) showGate(gateLeft);
 }
@@ -624,7 +650,7 @@ function seatHTML(p) {
   const g = G(), req = g.req;
   const aims = aimSet();
   const cls = ['opp', p.status === 'ghost' ? 'ghost' : '', p.status === 'down' ? 'down' : '', p.id === g.turn && !g.over ? 'turn' : '', req && req.to === p.id && !g.over ? 'thinking' : '', req && req.to === p.id && req.to !== g.turn && !g.over ? 'asked' : '', !p.alive ? 'dead' : '',
-    targets().has(p.id) ? 'target' : ''].join(' ');
+    targets().has(p.id) ? 'target' : '', gd.target === p.id ? 'hint' : ''].join(' ');
   const mp = myP();
   const far = mp && mp.alive && p.id !== me ? farOf(p) : null, inRange = far != null && far <= reachOf(mp);
   const back = far != null ? farToMe(p) : null, threat = back != null && back <= reachOf(p);
@@ -710,7 +736,7 @@ function renderCenter() {
   $('#pile').innerHTML = g.pile ? cardHTML(g.pile) : '<span class="pile-empty">버린 카드</span>';
   const st = $('#store'), r = myReq();
   st.hidden = !g.store.length;
-  st.innerHTML = g.store.length ? `<p class="store-t">잡화점${r && r.kind === 'store' ? ' — 1장을 고르세요' : ''}</p><div class="store-row">${g.store.map(c => cardHTML(c, r && r.kind === 'store' ? 'can' : '')).join('')}</div>` : '';
+  st.innerHTML = g.store.length ? `<p class="store-t">잡화점${r && r.kind === 'store' ? ' — 1장을 고르세요' : ''}</p><div class="store-row">${g.store.map(c => cardHTML(c, (r && r.kind === 'store' ? 'can' : '') + (gd.store === c.id ? ' hint' : ''))).join('')}</div>` : '';
 }
 
 /* 카드 한 장 */
@@ -757,7 +783,7 @@ function renderHand() {
   if (!g.me) { el.innerHTML = ''; return; }
   const ok = eligible();
   const now = new Set(g.me.hand.map(c => c.id));
-  el.innerHTML = g.me.hand.map(c => cardHTML(c, [g.me.mustPlay === c.id ? 'must' : '', sel.includes(c.id) ? 'sel' : '', ok ? (ok.has(c.id) ? 'can' : 'dim') : '', prevHand.size && !prevHand.has(c.id) ? 'new' : ''].join(' '))).join('');
+  el.innerHTML = g.me.hand.map(c => cardHTML(c, [g.me.mustPlay === c.id ? 'must' : '', sel.includes(c.id) ? 'sel' : '', ok ? (ok.has(c.id) ? 'can' : 'dim') : '', gd.card === c.id || gd.cards.includes(c.id) ? 'hint' : '', prevHand.size && !prevHand.has(c.id) ? 'new' : ''].join(' '))).join('');
   prevHand = now;
   el.style.setProperty('--n', g.me.hand.length);
   fitHand();
@@ -1274,10 +1300,20 @@ function renderFeed(added) {
   const el = $('#feed');
   const lines = feedLines.slice(-3);
   el.innerHTML = lines.map((l, i) => `<p class="${l.cls || ''} ${i === lines.length - 1 ? 'now' : ''} ${i >= lines.length - added ? 'in' : ''}">${feedText(l.text)}</p>`).join('');
+  fitFeed();
 }
+/** 가이드 칸이 가운데 소식을 가리면 오래된 줄부터 감춘다 — 가장 새 줄은 늘 보이게 */
+function fitFeed() {
+  const f = $('#feed'), ps = [...f.children], gEl = $('#guide');
+  ps.forEach(p => { p.style.display = ''; });
+  if (gEl.hidden || narrowMQ.matches || screen !== 'game') return;
+  const top = gEl.getBoundingClientRect().top - 12;   // 나타나는 동안 6px 아래에서 올라온다
+  for (let i = 0; i < ps.length - 1 && f.getBoundingClientRect().bottom > top; i++) ps[i].style.display = 'none';
+}
+addEventListener('resize', () => requestAnimationFrame(fitFeed));
 $('#feed').onclick = () => { $('#log').classList.add('open'); if (chatDocked()) chatRead(); };
 const narrowMQ = matchMedia('(max-width: 760px)');
-function placeFeed() { const f = $('#feed'); if (narrowMQ.matches) { if (f.nextElementSibling !== $('#act')) $('#act').before(f); } else if (f.parentElement !== $('#table')) $('#center').after(f); }
+function placeFeed() { const f = $('#feed'); if (narrowMQ.matches) { if (f.nextElementSibling !== $('#guideAt')) $('#guideAt').before(f); } else if (f.parentElement !== $('#table')) $('#center').after(f); }
 narrowMQ.addEventListener('change', placeFeed);
 placeFeed();
 $('#bLog').onclick = () => { $('#log').classList.toggle('open'); if (chatSeen()) chatRead(); };
@@ -1410,6 +1446,7 @@ const HELP = {
     <li>시작하면 역할 카드를 받고 인물을 확인한다(방장이 "두 장 중 고르기"로 정했으면 둘 중 하나를 고른다). 모두 마치면 보안관부터 시작한다.</li>
     <li>내 차례에 <b>빛나는 카드</b>를 누르면 고르고, 한 번 더 누르면(또는 두 번 누르면) 쓴다. 대상이 필요한 카드는 <b>빨갛게 빛나는 자리</b>를 누른다.</li>
     <li>못 내는 카드를 누르면 까닭을 알려 준다.</li>
+    <li>오른쪽 위 <b>🧭 가이드</b>를 켜 두면 할 일 막대 위에 지금 하면 좋은 일을 알려 주고, 추천하는 카드와 대상에 <b>추천</b> 표시를 단다. 편 짐작은 누가 누구를 공격했는지만 보고 하니 틀릴 수도 있다. 익숙해지면 끄면 된다.</li>
     <li>누가 나를 쏘면 아래 막대에 <b>빗나감! 내기 / 맞기</b>가 뜬다. 술통이 있으면 <b>🛢 술통 쓰기</b>를 먼저 눌러 뽑기!를 할 수 있다.</li>
     <li>카드나 인물 위에 마우스를 올리면(폰에서는 누르면) 크게 보인다. 📜는 지금까지의 기록.</li>
     <li>시간이 다 되면 턴은 끝나고 막기는 봇이 대신 고른다. 판 중에 나가면 그 자리는 봇이 이어받는다.</li>

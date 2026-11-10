@@ -860,13 +860,12 @@ export class Game {
         }
         break;
       }
-      case 'gatling':
+      case 'gatling':                // 모두를 치는 카드는 편 짐작(aggro)에 넣지 않는다 — 누구를 노린 게 아니다
         this.log(`${this.nm(p)} 님이 기관총을 쏩니다!`, 'atk');
         this.say(p, '기관총 → 모두');
         this.emit({ fx: 'gatling', id: p.id });
         for (const q of this.others(p)) {
           if (!q.alive) continue;
-          this.hit_(p, q);
           yield* this.shoot(p, q, 1, '기관총');
           if (!p.alive) return;
         }
@@ -877,7 +876,6 @@ export class Game {
         this.emit({ fx: 'indians', id: p.id });
         for (const q of this.others(p)) {
           if (!q.alive) continue;
-          this.hit_(p, q);
           const ok = this.ab(q, 'calamity') ? ['bang', 'missed'] : ['bang'];
           const r = q.hand.length
             ? yield* this.ask({ to: q.id, kind: 'react', why: 'indians', from: p.id, need: 1, ok })
@@ -1087,6 +1085,7 @@ export class Game {
       me: me ? { id: me.id, hand: me.hand.map(card), mustPlay: this.turn === me.id ? this.mustPlay : null } : null,
       req: null,
       bangs: this.bangs, bangLimit: me ? this.bangLimit(me) : 1, sayFrom: this.turnSay || 0,
+      aggro: this.aggro,          // 누가 누구를 공격했나 — 모두 본 일이라 감출 것 없다. 초보자 가이드가 편을 짐작할 때 쓴다
     };
     if (q) {
       v.req = { kind: q.kind, to: q.to, seq: q.seq, why: q.why, from: q.from, need: q.need, n: q.n, left: q.left };

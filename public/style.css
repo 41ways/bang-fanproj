@@ -800,3 +800,39 @@ body.spec #bEmo { display: none; }
 @media (max-width: 760px) {
   .store { background: #1c1108; box-shadow: 0 0 0 2px var(--gold), 0 12px 30px rgba(0, 0, 0, .7); }
 }
+
+/* ── 초보자 가이드 ── 위 단추로 켜고 끈다. 할 일 막대 바로 위에 두세 줄 */
+.gtog { display: none; align-items: center; gap: 5px; height: 40px; padding: 0 12px 0 10px; border: 0; border-radius: 6px; background: var(--paper) url(/img/paper.jpg) center/200px; color: var(--ink); font: 700 14px var(--kr); box-shadow: 0 0 0 2px var(--wood-2), 0 3px 8px rgba(0, 0, 0, .5); cursor: pointer; transition: transform .12s, filter .15s; }
+body[data-screen="game"] .gtog { display: flex; }
+.gtog:hover { transform: translateY(-1px); }
+.gtog .gt-ic { font-size: 16px; }
+.gtog .gt-s { padding: 1px 6px; border-radius: 3px; background: var(--red); color: #fff6e6; font-size: 12px; }
+.gtog.off { filter: grayscale(.7) brightness(.8); }
+.gtog.off .gt-s { background: #5a4632; }
+
+.guide-at { position: relative; z-index: 7; width: min(980px, calc(100% - 24px)); height: 0; margin: 0 auto; pointer-events: none; }
+.guide { position: absolute; left: 0; bottom: 10px; max-width: min(640px, 100%); display: flex; gap: 9px; align-items: flex-start; padding: 8px 14px 8px 10px; background: rgba(22, 13, 6, .9); color: #f6e8cc; border: 1px solid rgba(232, 182, 76, .45); border-left: 4px solid var(--gold); border-radius: 6px; box-shadow: 0 6px 18px rgba(0, 0, 0, .5); font-size: 14px; line-height: 1.45; }
+.guide[hidden] { display: none; }
+.guide.in { animation: guideIn .3s ease-out; }
+@keyframes guideIn { from { opacity: 0; transform: translateY(6px); } }
+.guide .g-ic { font-size: 17px; line-height: 1.3; }
+.guide p { margin: 0; }
+.guide p + p { margin-top: 3px; }
+.guide b { color: var(--gold-hi); }
+.guide p.goal { color: rgba(246, 232, 204, .72); font-size: 12.5px; }
+.guide p.goal b { color: #f0d9a8; }
+.guide p.goal i { font-style: normal; font-weight: 700; color: #f6e8cc; margin-right: 3px; }
+
+/* 추천 표시 — 손 카드 · 잡화점 카드 · 자리 */
+.hand .card.hint:not(.sel), .store .card.hint { box-shadow: 0 0 0 3px var(--gold-hi), 0 0 20px rgba(255, 215, 120, .75), 0 6px 12px rgba(0, 0, 0, .5); }
+.hand .card.hint::after, .store .card.hint::after { content: "추천"; position: absolute; top: 3px; right: 3px; z-index: 2; padding: 1px 5px; border-radius: 3px; background: var(--gold); color: #2a190c; font: 700 11px var(--kr); box-shadow: 0 1px 3px rgba(0, 0, 0, .5); }
+.opp.hint::after { content: "🧭 추천"; position: absolute; top: -13px; right: 10px; z-index: 4; padding: 1px 7px; border-radius: 3px; background: var(--gold); color: #2a190c; font: 700 12px var(--kr); box-shadow: 0 2px 5px rgba(0, 0, 0, .55); }
+
+@media (max-width: 760px) {
+  .gtog { height: 36px; padding: 0 8px; gap: 4px; }
+  .gtog .gt-l { display: none; }
+  .guide-at { height: auto; width: calc(100% - 16px); margin: 0 auto 6px; }
+  .guide { position: static; max-width: none; font-size: 12.5px; padding: 6px 10px 6px 8px; gap: 7px; }
+  .guide p.goal { display: none; }
+  .opp.hint::after { top: -10px; right: 4px; font-size: 10.5px; padding: 0 5px; }
+}
