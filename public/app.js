@@ -179,6 +179,7 @@ function show(id) {
   if ((id === 'setup') !== watching) watchRooms(id === 'setup');
   if (id === 'title' || id === 'setup') { chatRoom = null; chatReset(); $('#chatBtn').hidden = true; queue.length = 0; drawn = null; gateShown = false; }
   hideTip();
+  placeChat();
   if (id === 'game') requestAnimationFrame(layout);
 }
 let toastT = null;
@@ -192,24 +193,59 @@ const nameOf = id => { const p = gp(id) || playerOf(id); return p ? p.name : '?'
 let chatUnread = 0, chatRoom = null, chatAway = 0, chatPeekT = 0;
 const chatTitle0 = document.title;
 function chatReset() { $('#chatLog').textContent = ''; $('#chat').hidden = true; chatUnread = 0; chatBadge(); chatPeekOff(); chatAway = 0; chatTitle(); }
+/* 판에선 채팅을 오른쪽 기록 칸 아래에 붙인다(기록 위 · 채팅 아래). 다른 화면에선 떠 있는 창 */
+const wideMQ = matchMedia('(min-width: 1500px)');
+const chatDocked = () => $('#chat').classList.contains('docked');
+/** 지금 채팅이 눈에 보이나 — 붙어 있으면 오른쪽 칸이 펼쳐져 있을 때 */
+const chatSeen = () => chatDocked() ? (wideMQ.matches || $('#log').classList.contains('open')) : !$('#chat').hidden;
+function placeChat() {
+  const c = $('#chat'), dock = screen === 'game';
+  if (dock && c.parentElement !== $('#log')) $('#log').appendChild(c);
+  if (!dock && c.parentElement === $('#log')) $('#chatPeek').after(c);
+  c.classList.toggle('docked', dock);
+  document.body.classList.toggle('chat-docked', dock);
+  if (dock) { c.hidden = !S; if (chatSeen()) chatRead(); }
+  const log = $('#chatLog'); log.scrollTop = log.scrollHeight;
+}
+function chatRead() { chatUnread = 0; chatBadge(); chatPeekOff(); }
 function chatOpen(on) {
-  $('#chat').hidden = !on;
-  if (!on) return;
-  chatUnread = 0; chatBadge(); chatPeekOff();
+  if (chatDocked()) {
+    $('#log').classList.toggle('open', on);
+    if (!on) return;
+  } else {
+    $('#chat').hidden = !on;
+    if (!on) return;
+  }
+  chatRead();
   $('#chatText').focus();
   const log = $('#chatLog'); log.scrollTop = log.scrollHeight;
 }
+wideMQ.addEventListener('change', () => { if (chatSeen()) chatRead(); });
+/* 채팅: 위로 올려 읽는 중이면 새 글이 와도 끌어내리지 않는다 (전 게임 공통) */
+function chatAtEnd(log) { return !log.clientHeight || log.scrollHeight - log.scrollTop - log.clientHeight < 48; }
+function chatFollow(log, atEnd, mine) {
+  let more = log.querySelector('.chat-more');
+  if (atEnd || mine) { if (more) more.remove(); log.scrollTop = log.scrollHeight; return; }
+  if (!more) {
+    more = document.createElement('button'); more.type = 'button'; more.className = 'chat-more'; more.textContent = '↓ 새 메시지';
+    more.style.cssText = 'position:sticky;bottom:6px;display:block;width:max-content;margin:4px auto 0;padding:4px 12px;border:0;border-radius:4px;background:rgba(0,0,0,.72);color:#fff;font:inherit;font-size:12.5px;line-height:1.4;cursor:pointer;z-index:2;flex:none;align-self:center';
+    more.onclick = () => { log.scrollTop = log.scrollHeight; };
+  }
+  log.appendChild(more); // 늘 맨 끝에
+  if (!log._chatMoreWatch) { log._chatMoreWatch = true; log.addEventListener('scroll', () => { const m = log.querySelector('.chat-more'); if (m && chatAtEnd(log)) m.remove(); }); }
+}
 function addChat(m) {
   const log = $('#chatLog');
+  const atEnd = chatAtEnd(log);
   const d = document.createElement('p');
   const mine = !m.sys && m.from === (me != null ? me : specId);
   d.className = 'chat-msg' + (mine ? ' mine' : '') + (m.sys ? ' sys' : '');
   d.innerHTML = m.sys ? esc(m.text) : `<b>${esc(m.name)}${m.spec ? ' (관전)' : ''}</b>${esc(m.text)}`;
   log.appendChild(d);
   while (log.children.length > 60) log.removeChild(log.firstChild);
-  log.scrollTop = log.scrollHeight;
+  chatFollow(log, atEnd, mine);
   if (mine || m.sys) return;
-  if ($('#chat').hidden) { chatUnread++; chatBadge(); chatPeek(m.name, m.text); }
+  if (!chatSeen()) { chatUnread++; chatBadge(); chatPeek(m.name, m.text); }
   if (document.hidden || !document.hasFocus()) { chatAway++; chatTitle(); }
   if (screen === 'game' && m.from != null && !m.spec) bubble(m.from, m.text);
 }
@@ -232,9 +268,11 @@ function syncChatVisible() {
   const humans = S ? S.players.filter(p => !p.bot).length + (S.specs ? S.specs.length : 0) : 0;
   const on = !!S;
   $('#chatBtn').hidden = !on;
-  if (!on) { $('#chat').hidden = true; chatPeekOff(); } else $('#chatWho').textContent = humans > 1 ? `${humans}명` : '지금은 나 혼자 — 초대 링크로 불러 보세요';
+  if (!on) { $('#chat').hidden = true; chatPeekOff(); return; }
+  if (chatDocked()) $('#chat').hidden = false;
+  $('#chatWho').textContent = humans > 1 ? `${humans}명` : '지금은 나 혼자 — 초대 링크로 불러 보세요';
 }
-$('#chatBtn').onclick = () => chatOpen($('#chat').hidden);
+$('#chatBtn').onclick = () => chatOpen(!chatSeen());
 $('#chatPeek').onclick = () => chatOpen(true);
 $('#chatX').onclick = () => chatOpen(false);
 $('#chatForm').addEventListener('submit', e => {
@@ -1213,10 +1251,11 @@ $('#bEmo').onclick = () => $('#reacts').classList.toggle('open');
 /* 기록 */
 function addLogs(logs) {
   const el = $('#logIn');
+  const atEnd = chatAtEnd(el);
   for (const l of logs || []) { const d = document.createElement('p'); d.className = 'l ' + (l.cls || ''); d.textContent = l.text; el.appendChild(d); feedLines.push(l); }
   while (el.children.length > 250) el.removeChild(el.firstChild);
   if (feedLines.length > 40) feedLines.splice(0, feedLines.length - 40);
-  el.scrollTop = el.scrollHeight;
+  if (atEnd) el.scrollTop = el.scrollHeight;
   renderFeed((logs || []).length);
 }
 /* 판 가운데 "방금 일어난 일" — 누가 무엇을 냈고 무엇을 골랐는지 모두가 따라오게. 이름은 굵게, 카드는 색으로 */
@@ -1236,13 +1275,14 @@ function renderFeed(added) {
   const lines = feedLines.slice(-3);
   el.innerHTML = lines.map((l, i) => `<p class="${l.cls || ''} ${i === lines.length - 1 ? 'now' : ''} ${i >= lines.length - added ? 'in' : ''}">${feedText(l.text)}</p>`).join('');
 }
-$('#feed').onclick = () => $('#log').classList.add('open');
+$('#feed').onclick = () => { $('#log').classList.add('open'); if (chatDocked()) chatRead(); };
 const narrowMQ = matchMedia('(max-width: 760px)');
 function placeFeed() { const f = $('#feed'); if (narrowMQ.matches) { if (f.nextElementSibling !== $('#act')) $('#act').before(f); } else if (f.parentElement !== $('#table')) $('#center').after(f); }
 narrowMQ.addEventListener('change', placeFeed);
 placeFeed();
-$('#bLog').onclick = () => $('#log').classList.toggle('open');
+$('#bLog').onclick = () => { $('#log').classList.toggle('open'); if (chatSeen()) chatRead(); };
 $('#logX').onclick = () => $('#log').classList.remove('open');
+new MutationObserver(() => document.body.classList.toggle('log-open', $('#log').classList.contains('open'))).observe($('#log'), { attributes: true, attributeFilter: ['class'] });
 
 /* ─────────────────────────── 끝 ─────────────────────────── */
 function showOver() {
