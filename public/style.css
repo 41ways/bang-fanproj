@@ -198,7 +198,8 @@ body[data-screen="game"] .brand { display: none; }
 .table { position: relative; flex: 1; min-height: 0; }
 .opps { position: absolute; inset: 0; }
 .opp { position: absolute; transform: translate(-50%, -50%); width: 214px; display: grid; grid-template-columns: 70px 1fr; gap: 2px 10px; padding: 8px 10px 8px 8px; background: var(--paper) url(/img/paper.jpg) center/260px; color: var(--ink); border-radius: 10px; box-shadow: 0 0 0 4px var(--wood-2), 0 0 0 6px #160c05, 0 10px 22px rgba(0, 0, 0, .55); transition: box-shadow .25s, filter .3s, transform .2s; z-index: 3; }
-.opp.turn { box-shadow: 0 0 0 4px var(--gold), 0 0 0 6px #160c05, 0 0 32px rgba(255, 205, 100, .75), 0 10px 22px rgba(0, 0, 0, .55); }
+/* 지금 차례인 사람 — 다른 자리(4px 나무색)보다 훨씬 굵은 금테로 한눈에 */
+.opp.turn { box-shadow: 0 0 0 var(--turn-w, 8px) var(--gold-hi), 0 0 0 calc(var(--turn-w, 8px) + 3px) #160c05, 0 0 44px rgba(255, 205, 100, .9), 0 10px 22px rgba(0, 0, 0, .55); z-index: 4; }
 .opp.asked { box-shadow: 0 0 0 4px var(--blue-hi), 0 0 0 6px #160c05, 0 0 28px rgba(90, 180, 230, .7), 0 10px 22px rgba(0, 0, 0, .55); }
 .opp.target { cursor: crosshair; animation: target 1s infinite; }
 .opp.target:hover { transform: translate(-50%, -50%) scale(1.06); box-shadow: 0 0 0 4px var(--red-hi), 0 0 0 6px #160c05, 0 0 40px rgba(255, 90, 50, .95); }
@@ -283,7 +284,7 @@ body[data-screen="game"] .brand { display: none; }
 /* 내 자리 · 손 */
 .myzone { position: relative; z-index: 5; display: flex; align-items: flex-end; gap: 16px; padding: 0 16px 12px; min-height: 160px; }
 .me { flex: none; width: 360px; display: grid; grid-template-columns: 86px 1fr; gap: 4px 12px; padding: 10px 12px; background: var(--paper) url(/img/paper.jpg) center/260px; color: var(--ink); border-radius: 10px; box-shadow: 0 0 0 4px var(--wood-2), 0 0 0 6px #160c05, 0 10px 22px rgba(0, 0, 0, .55); transition: box-shadow .25s; }
-.me.turn { box-shadow: 0 0 0 4px var(--gold), 0 0 0 6px #160c05, 0 0 32px rgba(255, 205, 100, .7); }
+.me.turn { box-shadow: 0 0 0 var(--turn-w, 8px) var(--gold-hi), 0 0 0 calc(var(--turn-w, 8px) + 3px) #160c05, 0 0 44px rgba(255, 205, 100, .85); }
 .me.asked:not(.turn) { box-shadow: 0 0 0 4px var(--blue-hi), 0 0 0 6px #160c05, 0 0 28px rgba(90, 180, 230, .65); }
 .me.dead { filter: grayscale(1) brightness(.7); }
 .me.target { cursor: crosshair; box-shadow: 0 0 0 4px var(--red-hi), 0 0 0 6px #160c05, 0 0 30px rgba(255, 90, 50, .8); }
@@ -836,3 +837,6 @@ body[data-screen="game"] .gtog { display: flex; }
   .guide p.goal { display: none; }
   .opp.hint::after { top: -10px; right: 4px; font-size: 10.5px; padding: 0 5px; }
 }
+
+/* 폰 — 자리끼리 붙어 있어 금테를 조금 얇게 */
+@media (max-width: 760px) { :root { --turn-w: 5px; } }
