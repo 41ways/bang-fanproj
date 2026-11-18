@@ -96,6 +96,7 @@ export function decide(g, pid) {
       }
       return { a: 'take' };
     }
+    case 'squeeze': return { a: 'open' };
     case 'lucky': return { a: 'pick', c: (q.good && q.good[0] != null) ? q.good[0] : q.cards[0] };
     case 'dying': {
       const beer = me.hand.find(c => C(c).k === 'beer');

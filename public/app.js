@@ -582,6 +582,74 @@ $('#bGuide').onclick = () => {
 };
 syncGuide();
 
+/* ─── 뽑기! 쪼기 — 포커 패 쪼듯 카드 모서리를 끌어 연다 ───
+   뽑는 사람만 카드를 받는다(req.card). 다른 사람에게는 "쪼는 중…" 뒷면만 보이고, 열면 모두에게 뒤집기 연출이 간다. */
+const SQ_NEED = { '감옥': '♥ 하트면 풀려나요', '술통': '♥ 하트면 빗나감!', '다이너마이트': '♠ 스페이드 2~9면 쾅! 그 밖이면 옆으로 넘어가요', '복수': '♥ 하트면 한 번 더' };
+let sqAt = 0;                     // 내가 쪼아서 연 때 — 이어지는 뒤집기 연출은 뒷면을 건너뛴다
+function sqNeed(what) {
+  const ev = G() && G().event;
+  const ov = ev === 'blessing' ? ' (축복 — 모든 카드가 ♥)' : ev === 'curse' ? ' (저주 — 모든 카드가 ♠)' : '';
+  return (SQ_NEED[what] || '') + ov;
+}
+function renderSqueeze() {
+  const g = G(), r = g && g.req, el = $('#squeeze');
+  if (!r || r.kind !== 'squeeze' || g.over) { el.hidden = true; el.dataset.key = ''; return; }
+  const mine = r.to === me && !drawn.auto;
+  const key = S.gameNo + ':' + r.seq + ':' + mine;
+  if (el.dataset.key === key) return;          // 쪼는 중에 다시 그리면 손가락이 끊긴다
+  el.dataset.key = key; el.hidden = false;
+  el.classList.toggle('mine', mine);
+  if (!mine || !r.card) {
+    el.innerHTML = `<p class="sq-t"><b>${esc(nameOf(r.to))}</b> 님이 <b>${esc(r.what || '')} 뽑기!</b> 카드를 쪼는 중…</p>
+      <div class="sq-card wait"><span class="card back"><img class="c-art" src="${CARD_IMG('back')}" alt=""></span></div><p class="sq-need">${sqNeed(r.what)}</p>`;
+    return;
+  }
+  el.innerHTML = `<p class="sq-t"><b>${esc(r.what)} 뽑기!</b> — 카드를 누른 채 천천히 끌어 쪼아 보세요</p>
+    <div class="sq-card" id="sqCard">${cardHTML(r.card)}<span class="sq-back"><img src="${CARD_IMG('back')}" alt="" draggable="false"></span><span class="sq-fold"></span><span class="sq-hand">👆</span></div>
+    <p class="sq-need">${sqNeed(r.what)}</p>
+    <button class="wbtn sm dark" id="sqOpen"><span>그냥 뒤집기</span></button>`;
+  bindSqueeze();
+}
+function bindSqueeze() {
+  const box = $('#sqCard'), back = box.querySelector('.sq-back'), fold = box.querySelector('.sq-fold');
+  let start = null, L = 0, done = false;
+  const W = () => box.offsetWidth, H = () => box.offsetHeight;
+  const set = (l, anim) => {
+    L = Math.max(0, l);
+    const t = anim ? 'clip-path .35s ease, -webkit-clip-path .35s ease' : 'none';
+    back.style.transition = t; fold.style.transition = t;
+    const cp = L > 0 ? `polygon(${L}px 0, 100% 0, 100% 100%, 0 100%, 0 ${L}px)` : 'none';
+    back.style.clipPath = back.style.webkitClipPath = cp;
+    // 접힌 날개 — 모서리를 접은 선(x+y=L)에 비친 삼각형
+    const fp = `polygon(${L}px 0, 0 ${L}px, ${L}px ${L}px)`;
+    fold.style.clipPath = fold.style.webkitClipPath = L > 0 ? fp : 'polygon(0 0, 0 0, 0 0)';
+    box.classList.toggle('peeling', L > 0);
+  };
+  const open = () => {
+    if (done) return; done = true;
+    set(W() + H(), true); box.classList.add('opened'); sfx.card();
+    sqAt = Date.now();
+    setTimeout(() => act({ a: 'open' }), 380);
+  };
+  box.addEventListener('pointerdown', e => { if (done) return; e.preventDefault(); box.setPointerCapture(e.pointerId); start = { x: e.clientX, y: e.clientY }; box.classList.add('held'); });
+  box.addEventListener('pointermove', e => { if (!start || done) return; set(Math.hypot(e.clientX - start.x, e.clientY - start.y) * 1.15); if (L > W() * 1.05) open(); });
+  const up = () => { if (!start || done) return; start = null; box.classList.remove('held'); if (L > W() * .8) open(); else set(0, true); };
+  box.addEventListener('pointerup', up); box.addEventListener('pointercancel', up);
+  box.addEventListener('contextmenu', e => e.preventDefault());
+  $('#sqOpen').onclick = open;
+}
+
+/* ─── 차례 알림 — 화면 가운데 큰 판 ─── */
+let turnT = 0;
+function turnCard(id) {
+  const el = $('#turnCard'), mine = id === me;
+  el.className = 'turn-card' + (mine ? ' mine' : '');
+  el.innerHTML = mine ? `<small>당신의 차례</small><b>나의 턴!</b>` : `<small>지금 차례</small><b>${esc(nameOf(id))}<span> 턴</span></b>`;
+  el.hidden = false;
+  el.classList.remove('show'); void el.offsetWidth; el.classList.add('show');
+  clearTimeout(turnT); turnT = setTimeout(() => { el.hidden = true; }, FX_MS.turn + 150);
+}
+
 let gateShown = false;
 function renderGame() {
   const g = G(); if (!g) return;
@@ -590,7 +658,7 @@ function renderGame() {
   if (!g.req || g.req.seq !== selSeq) { resetSel(); selSeq = g.req ? g.req.seq : 0; }
   document.body.classList.toggle('my-turn', g.turn === me && !g.over);
   gd = guideOn && !isSpec() ? advise(g, me, myReq(), sel, mode) : NO_GD;
-  renderOpps(); renderCenter(); renderMe(); renderHand(); renderAct(); renderGuide();
+  renderOpps(); renderCenter(); renderMe(); renderHand(); renderAct(); renderGuide(); renderSqueeze();
   const gateLeft = (drawn.gate || 0) - (Date.now() + skew);
   if (gateLeft > 300 && !gateShown) showGate(gateLeft);
 }
@@ -1009,7 +1077,7 @@ function renderAct() {
   } else if (!rm) {
     if (r.to === me) text = '…';
     else {
-      const doing = { play: '카드를 내는 중', discard: '카드를 버리는 중', react: '막을지 고민하는 중', dying: '맥주를 찾는 중', store: '잡화점에서 고르는 중', jesse: '첫 장을 어디서 가져올지 고르는 중', pedro: '첫 장을 어디서 가져올지 고르는 중', kit: '카드를 고르는 중', lucky: '뽑기! 두 장 중 고르는 중', daltons: '버릴 파란 카드를 고르는 중', blood: '생명을 나눠 줄지 고민하는 중', liquor: '독한 술을 마실지 고민하는 중', peyote: '빨강일지 검정일지 맞히는 중', ranch: '바꿀 카드를 고르는 중', order: '버린 카드 맨 위에 올 카드를 고르는 중' }[r.kind];
+      const doing = { play: '카드를 내는 중', discard: '카드를 버리는 중', react: '막을지 고민하는 중', dying: '맥주를 찾는 중', store: '잡화점에서 고르는 중', jesse: '첫 장을 어디서 가져올지 고르는 중', pedro: '첫 장을 어디서 가져올지 고르는 중', kit: '카드를 고르는 중', lucky: '뽑기! 두 장 중 고르는 중', daltons: '버릴 파란 카드를 고르는 중', blood: '생명을 나눠 줄지 고민하는 중', liquor: '독한 술을 마실지 고민하는 중', peyote: '빨강일지 검정일지 맞히는 중', ranch: '바꿀 카드를 고르는 중', squeeze: `${esc(r.what || '')} 뽑기! 카드를 쪼는 중`, order: '버린 카드 맨 위에 올 카드를 고르는 중' }[r.kind];
       text = `${esc(nameOf(r.to))} 님이 ${doing}…`;
       if (r.kind === 'react' && r.from != null) text = `${esc(nameOf(r.from))} 님의 ${WHY[r.why]} — ${esc(nameOf(r.to))} 님이 ${r.why === 'duel' || r.why === 'indians' ? '뱅!을 낼지' : '막을지'} 고민하는 중…`;
       if (r.kind === 'react' && r.why === 'roulette') text = `러시안 룰렛 — ${esc(nameOf(r.to))} 님 차례… 빗나감!을 낼까?`;
@@ -1087,6 +1155,9 @@ function renderAct() {
         break;
       }
       case 'store': text = '<b>잡화점</b> — 가운데 펼친 카드 중 1장을 고르세요'; break;
+      case 'squeeze':
+        text = `<b>${esc(rm.what)} 뽑기!</b> — 가운데 카드를 끌어 쪼아서 여세요<small>${sqNeed(rm.what)}</small>`;
+        break;
       case 'jesse':
         text = '<b>제시 존스</b> — 첫 장을 더미에서, 또는 빛나는 사람의 손에서 가져와요';
         B('더미에서 뽑기', () => act({ a: 'deck' }), 'red');
@@ -1239,8 +1310,13 @@ function showFlip(e) {
   f.innerHTML = `<p class="flip-t">${esc(nameOf(e.id))} — ${e.what} 뽑기!</p><div class="flip-row">${e.cs.map(id => `<span class="flip-c">${cardHTML(DECK[id], e.cs.length > 1 ? (id === e.pick ? 'pick' : 'dim') : '')}<span class="card back"><img class="c-art" src="${CARD_IMG('back')}" alt=""></span></span>`).join('')}</div><p class="flip-v ${e.ok ? 'ok' : 'no'}">${e.ok ? '성공!' : '실패…'}</p>`;
   f.classList.remove('turned', 'told');
   f.hidden = false;
-  setTimeout(() => { f.classList.add('turned'); sfx.card(); }, 650);
-  setTimeout(() => { f.classList.add('told'); }, 1150);
+  $('#squeeze').hidden = true;
+  const quick = e.id === me && Date.now() - sqAt < 10000;     // 내가 방금 쪼아서 연 카드 — 다시 뒷면부터 보일 까닭이 없다
+  if (quick) { f.classList.add('turned'); setTimeout(() => f.classList.add('told'), 200); }
+  else {
+    setTimeout(() => { f.classList.add('turned'); sfx.card(); }, 650);
+    setTimeout(() => { f.classList.add('told'); }, 1150);
+  }
   setTimeout(() => { f.hidden = true; }, FX_MS.flip - 100);
 }
 
@@ -1248,7 +1324,7 @@ async function playFx(list) {
   for (const e of list) {
     const ms = FX_MS[e.fx] || 300;
     switch (e.fx) {
-      case 'turn': if (e.id === me) { banner('당신의 차례!', 'mine'); sfx.turn(); } else banner(`${esc(nameOf(e.id))} 님의 차례`); break;
+      case 'turn': turnCard(e.id); if (e.id === me) sfx.turn(); break;
       case 'play': {
         const k = DECK[e.c].k;
         flyCard(DECK[e.c], e.id, 'pile'); sfx.card();

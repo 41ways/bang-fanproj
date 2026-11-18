@@ -206,6 +206,7 @@ function finishIntro(room) {
     roles: room.players.map(p => I.roles[p.id]),
     chars: room.players.map(p => I.picks[p.id]),
     events: eventDeck(room.cfg.exp, room.cfg.revive),
+    squeeze: true,
   });
   room.game.fx = [];                 // 첫 "차례" 연출은 관문이 대신한다
   room.phase = 'playing';
@@ -283,6 +284,14 @@ function schedule(room) {
     room.timers.act = setTimeout(run(() => g.answer(q.to, decide(g, q.to))), hold + (FAST ? 0 : DC_GRACE));
     return;
   }
+  // 뽑기 쪼기 — 길게 끌지 않게 막기 시간과 12초 중 짧은 쪽. 시간이 다 돼도 자리 비움으로 치지 않고 그냥 연다
+  if (q.kind === 'squeeze') {
+    const sq = room.cfg.react ? Math.min(room.cfg.react, 12) : 0;
+    if (!sq) { room.deadline = 0; return; }
+    room.deadline = Date.now() + hold + sq * 1000;
+    room.timers.act = setTimeout(run(() => g.answer(q.to, { a: 'open' })), hold + sq * 1000 + 250);
+    return;
+  }
   const secs = q.kind === 'play' ? room.cfg.turn : room.cfg.react;
   if (!secs) { room.deadline = 0; return; }           // 무제한
   room.deadline = Date.now() + hold + secs * 1000;
@@ -322,7 +331,7 @@ function stateFor(room, me, fx) {
     const who = me || null;
     base.g = g.view(who ? who.id : null);
     base.deadline = room.deadline;
-    base.secs = g.req ? (g.req.kind === 'play' ? room.cfg.turn : room.cfg.react) : 0;
+    base.secs = g.req ? (g.req.kind === 'play' ? room.cfg.turn : g.req.kind === 'squeeze' ? Math.min(room.cfg.react || 12, 12) : room.cfg.react) : 0;
     base.gate = room.gate;
     base.auto = who ? !!autoOf(room, who.id) && !who.bot : false;
     const holder = who || null;

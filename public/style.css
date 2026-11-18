@@ -872,3 +872,43 @@ body.peek-role .guide p.secret-line { filter: none; }
 .rf-hold { margin: 12px 0 0; font: 700 14px var(--kr); color: var(--gold-hi); text-shadow: 0 1px 4px #000; }
 .role-flip.open .rf-hold, .role-flip:not(.hold) .rf-hold { display: none; }
 .role-flip.hold:not(.open) .rf-goal { position: absolute; visibility: hidden; }
+
+/* ── 뽑기! 쪼기 — 카드 모서리를 끌어 연다 ── */
+.squeeze { position: absolute; left: 50%; top: 44%; transform: translate(-50%, -50%); z-index: 13; width: max-content; max-width: calc(100% - 24px); padding: 14px 24px; border-radius: 12px; background: rgba(20, 12, 6, .93); color: var(--cream); text-align: center; box-shadow: 0 0 0 3px var(--gold), 0 18px 40px rgba(0, 0, 0, .65); }
+.squeeze[hidden] { display: none; }
+.sq-t { margin: 0 0 12px; font-weight: 700; font-size: 15px; } .sq-t b { color: var(--gold-hi); }
+.sq-need { margin: 12px 0 0; font-size: 14px; color: #f0d9a8; }
+.squeeze #sqOpen { margin-top: 10px; }
+.sq-card { position: relative; width: 150px; height: 216px; margin: 0 auto; touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; cursor: grab; }
+.sq-card.held { cursor: grabbing; }
+.sq-card .card { --cw: 150px; --ch: 216px; }
+.sq-back { position: absolute; inset: 0; border-radius: 12px; overflow: hidden; box-shadow: 0 0 0 4px #7a4c22, 0 8px 18px rgba(0, 0, 0, .55); }
+.sq-back img { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
+.sq-fold { position: absolute; inset: 0; border-radius: 12px; pointer-events: none; background: linear-gradient(135deg, #fbf1dc 0%, #e2c792 55%, #b8945e 100%); clip-path: polygon(0 0, 0 0, 0 0); }
+.sq-hand { position: absolute; left: 6px; top: 6px; font-size: 26px; pointer-events: none; filter: drop-shadow(0 2px 3px rgba(0, 0, 0, .7)); animation: sqHint 1.6s ease-in-out infinite; }
+.sq-card.peeling .sq-hand, .sq-card.held .sq-hand { display: none; }
+@keyframes sqHint { 0%, 15% { transform: translate(0, 0); opacity: 0; } 30% { opacity: 1; } 75% { transform: translate(34px, 34px); opacity: 1; } 100% { transform: translate(40px, 40px); opacity: 0; } }
+.sq-card.wait .card { --cw: 150px; --ch: 216px; animation: sqWait 1.4s ease-in-out infinite; }
+@keyframes sqWait { 0%, 100% { transform: rotate(0); } 20% { transform: rotate(-2.5deg) translateY(-3px); } 40% { transform: rotate(1.5deg); } 60% { transform: rotate(-1deg) translateY(-2px); } }
+
+/* ── 차례 알림 — 화면 가운데 큰 판 ── */
+.turn-card { position: fixed; left: 50%; top: 42%; z-index: 45; transform: translate(-50%, -50%); pointer-events: none; text-align: center; padding: 14px 42px 16px; border-radius: 8px; background: var(--paper) url(/img/paper.jpg) center/300px; color: var(--ink); box-shadow: 0 0 0 5px var(--wood-2), 0 0 0 8px #160c05, 0 18px 40px rgba(0, 0, 0, .65); }
+.turn-card[hidden] { display: none; }
+.turn-card small { display: block; font: 700 14px var(--kr); letter-spacing: .12em; color: var(--ink-2); }
+.turn-card b { display: block; font: 700 clamp(30px, 4.4vw, 50px) var(--kr); line-height: 1.15; white-space: nowrap; }
+.turn-card b span { color: var(--red); }
+.turn-card.mine { box-shadow: 0 0 0 5px var(--gold-hi), 0 0 0 8px #160c05, 0 0 70px rgba(255, 205, 100, .85), 0 18px 40px rgba(0, 0, 0, .65); }
+.turn-card.mine b { color: var(--red); }
+.turn-card.show { animation: turnCard 1.3s ease-out both; }
+@keyframes turnCard {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(.7); }
+  14% { opacity: 1; transform: translate(-50%, -50%) scale(1.05); }
+  24% { transform: translate(-50%, -50%) scale(1); }
+  82% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -56%) scale(.97); }
+}
+@media (min-width: 1500px) { body[data-screen="game"] .turn-card { left: calc(50% - 160px); } }
+@media (max-width: 760px) {
+  .squeeze { position: fixed; top: 42%; z-index: 50; }
+  .turn-card { padding: 10px 26px 12px; }
+}

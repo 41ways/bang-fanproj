@@ -36,6 +36,7 @@ export class Game {
     const n = seats.length;
     if (!ROLES_BY_N[n]) throw new Error('4~7명이어야 합니다');
     this.rng = opt.rng || Math.random;
+    this.squeeze = !!opt.squeeze;        // 사람이 뽑기!를 직접 쪼아 연다(방에서만 켠다 — 규칙 시험은 바로 넘어간다)
     this.cards = DECK.map(c => ({ ...c }));
     const roles = opt.roles || this.shuffle([...ROLES_BY_N[n]]);
     const chars = opt.chars || this.shuffle(Object.keys(CHARS)).slice(0, n);
@@ -251,6 +252,7 @@ export class Game {
         { const why = this.whyNot(p, r.c, r.t, r.tc, r.c2); if (why) bad(why); }
         return;
       case 'lucky': if (r.a !== 'pick' || !q.cards.includes(r.c)) bad('두 장 중 하나를 고르세요'); return;
+      case 'squeeze': if (r.a !== 'open') bad('카드를 여세요'); return;
       case 'discard':
         if (r.a === 'cancel') return;
         if (r.a !== 'discard' || !Array.isArray(r.cs) || r.cs.length !== q.n || new Set(r.cs).size !== q.n || !r.cs.every(inHand)) bad(q.n + '장을 골라 버리세요');
@@ -647,6 +649,12 @@ export class Game {
     for (let i = 0; i < n; i++) { const c = this.draw(); if (c != null) got.push(c); }
     if (!got.length) return true;
     let pick = got[0];
+    // 한 장이면 뽑는 사람이 직접 "쪼아서" 연다 — 포커 패 쪼듯. 열기 전까지 카드는 어디에도 드러나지 않는다(limbo)
+    if (got.length === 1 && this.squeeze && !p.bot) {
+      this.limbo = [...got];
+      yield* this.ask({ to: p.id, kind: 'squeeze', what, card: got[0] });
+      this.limbo = [];
+    }
     if (got.length > 1) {
       this.limbo = [...got];
       const r = yield* this.ask({ to: p.id, kind: 'lucky', cards: [...got], what, good: got.filter(judge) });
@@ -1088,7 +1096,7 @@ export class Game {
       aggro: this.aggro,          // 누가 누구를 공격했나 — 모두 본 일이라 감출 것 없다. 초보자 가이드가 편을 짐작할 때 쓴다
     };
     if (q) {
-      v.req = { kind: q.kind, to: q.to, seq: q.seq, why: q.why, from: q.from, need: q.need, n: q.n, left: q.left };
+      v.req = { kind: q.kind, to: q.to, seq: q.seq, why: q.why, from: q.from, need: q.need, n: q.n, left: q.left, what: q.what };
       if (q.tc != null) v.req.tc = card(q.tc);
       if (q.to === pid) {
         if (q.kind === 'play') {
@@ -1107,6 +1115,7 @@ export class Game {
           }
         }
         if (q.kind === 'react') { v.req.ok = q.ok; v.req.barrel = q.barrel; }
+        if (q.kind === 'squeeze') v.req.card = card(q.card);      // 쪼는 사람에게만 — 결과는 이미 정해져 있어 미리 알아도 고칠 게 없다
         if (q.kind === 'lucky') { v.req.cards = q.cards.map(card); v.req.what = q.what; }
         if (q.kind === 'store' || q.kind === 'kit' || q.kind === 'daltons' || q.kind === 'order') v.req.cards = q.cards.map(card);
         if (q.kind === 'pedro') v.req.top = card(q.top);

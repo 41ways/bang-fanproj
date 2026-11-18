@@ -60,6 +60,25 @@ const empty = g => { for (const p of g.players) { g.pile.push(...p.hand); p.hand
   ok(g.P('p1').hp === 4, '슬랩 뱅!을 술통+빗나감!으로 막음');
 }
 
+/* 쪼기 — 사람이 술통 뽑기!를 직접 연다. 열기 전엔 카드가 보이지 않고, 연 뒤에 판정 */
+{
+  const seats = ['sheriff', 'renegade', 'outlaw', 'outlaw'].map((_, i) => ({ id: 'p' + i, name: 'P' + i }));
+  const g = new Game(seats, { chars: ['slab', 'jourdonnais', 'pedro', 'sid'], roles: ['sheriff', 'renegade', 'outlaw', 'outlaw'], rng: () => 0.5, squeeze: true });
+  empty(g);
+  hand(g, 'p0', [find('bang', 'S', 1)]);
+  hand(g, 'p1', [find('missed', 'C', 10)]);
+  const heart = find('beer', 'H', 6);
+  top(g, [heart]);
+  g.answer('p0', { a: 'play', c: g.P('p0').hand[0], t: 'p1' });
+  g.answer('p1', { a: 'barrel' });
+  ok(g.req.kind === 'squeeze' && g.req.to === 'p1' && g.req.card === heart, '술통 뽑기! — 쪼기 요청');
+  ok(g.view('p1').req.card && g.view('p1').req.card.id === heart && !g.view('p0').req.card, '카드는 쪼는 사람에게만');
+  let threw = false; try { g.answer('p1', { a: 'take' }); } catch (_) { threw = true; }
+  ok(threw, '쪼기엔 열기만');
+  g.answer('p1', { a: 'open' });
+  ok(g.req.kind === 'react' && g.req.need === 1, '연 뒤에 하트 판정 — 빗나감! 1장만 더');
+}
+
 /* 캘러미티: 빗나감!을 뱅!으로 */
 {
   const g = setup(['calamity', 'bart', 'pedro', 'sid']);
