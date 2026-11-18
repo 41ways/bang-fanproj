@@ -27,7 +27,7 @@ const roleImg = (r, cls = 'ri') => `<img class="${cls}" src="${ICON(ROLE_ICON[r]
 const EMO = ['🤠', '😏', '🤔', '😱', '😤', '👏'];
 /** 연출 한 가지가 걸리는 시간 — src/hub.js 의 FX_MS 와 같아야 한다 */
 const FX_MS = {
-  turn: 1300, shot: 900, hurt: 650, heal: 600, dodge: 750, flip: 1600, boom: 1600, die: 2400,
+  turn: 1300, shot: 900, hurt: 650, heal: 600, dodge: 750, flip: 2300, boom: 1600, die: 2400,
   jailed: 1300, gatling: 1100, indians: 1100, play: 700, equip: 700, steal: 800, lose: 700,
   store: 1000, take: 550, draw: 450, show: 1100, pass: 900, spend: 500, discard: 450, over: 1500, reshuffle: 800,
   event: 3000, revive: 1600,
@@ -464,7 +464,10 @@ function renderIntro() {
   if (introKey !== key) {
     introKey = key;
     $('#iRole').classList.remove('open');
-    setTimeout(() => { $('#iRole').classList.add('open'); sfx.card(); }, 900);   // 뒷면을 먼저 보여 주고 내 역할이 뒤집힌다
+    // 보안관은 모두가 아니까 저절로 뒤집는다. 나머지는 누르고 있는 동안만 앞면(옆 사람이 보지 못하게)
+    const hold = !isSpec() && I.myRole !== 'sheriff';
+    $('#iRole').classList.toggle('hold', hold);
+    if (!hold) setTimeout(() => { $('#iRole').classList.add('open'); sfx.card(); }, 900);
   }
   if (isSpec()) {
     $('#iStep').textContent = '역할을 나눠 주는 중 — 구경하는 중이에요';
@@ -497,6 +500,15 @@ function renderIntro() {
     : I.mode === 'pick' ? `${left}초 안에 고르세요 — 고르지 않으면 왼쪽 인물로 정해져요` : `${left}초 뒤에 저절로 시작해요`;
   $('#iWho').innerHTML = S.players.map(p => `<span class="iw ${I.picked.includes(p.id) ? 'done' : ''}">${p.id === I.sheriff ? roleImg('sheriff', 'ri sm') + ' ' : ''}${esc(p.name)}${I.picked.includes(p.id) ? ' ✓' : ''}</span>`).join('');
 }
+{
+  const r = $('#iRole');
+  const on = e => { if (!r.classList.contains('hold')) return; e.preventDefault(); r.classList.add('open'); };
+  const off = () => { if (r.classList.contains('hold')) r.classList.remove('open'); };
+  r.addEventListener('pointerdown', on);
+  for (const t of ['pointerup', 'pointercancel', 'pointerleave']) r.addEventListener(t, off);
+  r.addEventListener('contextmenu', e => e.preventDefault());
+  addEventListener('blur', off);
+}
 $('#iChars').addEventListener('click', e => {
   const b = e.target.closest('.char-card');
   if (!b || b.disabled) return;
@@ -518,11 +530,16 @@ async function pump() {
       if (screen !== 'game' && screen !== 'over') show('game');
       if (m.reset) { $('#logIn').textContent = ''; feedLines.length = 0; }
       const had = !!drawn;
+      // "뽑기!"가 있으면 카드가 뒤집히기 전까지 결과(기록 · 감옥 풀림 · 생명)가 보이면 안 된다 —
+      // 뽑기 연출까지는 지난 상태 위에서 보여 주고, 그다음에 새 상태와 기록을 그린다
+      const fx = !fast && had && m.fx ? m.fx : [];
+      const cut = fx.map(e => e.fx).lastIndexOf('flip') + 1;
+      if (cut) await playFx(fx.slice(0, cut));
       drawn = m;
       addLogs(m.logs);
       renderGame();
       // 새 상태를 먼저 그리고 그 위에서 연출을 보여 준다 — 다 끝나야 다음 상태로 (서버도 그만큼 기다린다)
-      if (!fast && had && m.fx && m.fx.length) await playFx(m.fx);
+      if (fx.length > cut) await playFx(fx.slice(cut));
       if (m.phase === 'over' && !overShown) { overShown = true; setTimeout(showOver, fast ? 300 : 1800); }
       else if (m.phase === 'over' && screen === 'over') showOver();
       if (m.phase !== 'over') overShown = false;
@@ -547,7 +564,8 @@ function renderGuide() {
   const el = $('#guide'), L = gd.lines;
   el.hidden = !guideOn || !L.length || screen !== 'game';
   if (el.hidden) return fitFeed();
-  const html = `<b class="g-ic">🧭</b><div class="g-in">${L.map((t, i) => `<p class="${i === 0 && L.length > 1 ? 'goal' : ''}">${t}</p>`).join('')}</div>`;
+  // 역할이 드러나는 줄(\u0007 로 시작)은 엿볼 때만 또렷하게 — 옆 사람이 읽지 못하게 흐리게 둔다
+  const html = `<b class="g-ic">🧭</b><div class="g-in">${L.map((t, i) => { const sec = t[0] === '\u0007'; return `<p class="${i === 0 && L.length > 1 ? 'goal' : ''} ${sec ? 'secret-line' : ''}" ${sec ? 'data-peek' : ''}>${sec ? t.slice(1) : t}</p>`; }).join('')}</div>`;
   if (el.dataset.html !== html) { el.dataset.html = html; el.innerHTML = html; el.classList.remove('in'); void el.offsetWidth; el.classList.add('in'); }
   fitFeed();
 }
@@ -756,6 +774,27 @@ const SHORT = {
   volcanic: '사거리 1 · 뱅! 무제한', schofield: '사거리 2', remington: '사거리 3', carabine: '사거리 4', winchester: '사거리 5',
 };
 
+/* 내 역할 — 옆 사람 눈에 띄지 않게 평소엔 "?" 로 덮어 두고, 마우스를 올리거나 누르고 있을 때만 보인다.
+   보안관은 모두가 아니까 그대로 보인다. 쓰러진 뒤에는 이미 드러났으니 그대로. */
+const roleSecret = p => p.role !== 'sheriff' && p.alive && !G().over;
+function myRoleChip(p) {
+  if (!roleSecret(p)) return `<span class="me-role ${p.role}">${ROLES[p.role].name}</span>`;
+  return `<span class="me-role secret ${p.role}" data-peek title="마우스를 올리거나 누르고 있으면 내 역할이 보여요"><span class="s-off">?</span><span class="s-on">${ROLES[p.role].name}</span></span>`;
+}
+function myRoleBadge(p) {
+  if (!roleSecret(p)) return `<span class="rb ${p.role}">${roleImg(p.role)}</span>`;
+  return `<span class="rb secret" data-peek><span class="s-off">?</span><span class="s-on">${roleImg(p.role)}</span></span>`;
+}
+/* 엿보기 — 마우스는 올려 둔 동안, 손가락은 누르고 있는 동안 */
+const peek = on => document.body.classList.toggle('peek-role', on);
+document.addEventListener('pointerover', e => { if (e.pointerType === 'mouse' && e.target.closest('[data-peek]')) peek(true); });
+document.addEventListener('pointermove', e => { if (e.pointerType === 'mouse' && !e.buttons && document.body.classList.contains('peek-role') && !e.target.closest('[data-peek]')) peek(false); });
+document.addEventListener('pointerdown', e => { if (e.target.closest('[data-peek]')) peek(true); });
+for (const t of ['pointerup', 'pointercancel']) document.addEventListener(t, e => { if (e.pointerType !== 'mouse' || !e.target.closest('[data-peek]')) peek(false); });
+document.addEventListener('pointerout', e => { if (e.pointerType === 'mouse' && e.target.closest('[data-peek]') && !(e.relatedTarget && e.relatedTarget.closest && e.relatedTarget.closest('[data-peek]'))) peek(false); });
+addEventListener('blur', () => peek(false));
+document.addEventListener('contextmenu', e => { if (e.target.closest('[data-peek]')) e.preventDefault(); });
+
 /* 내 자리 — 인물 카드 · 역할 · 생명 · 앞에 놓은 카드 */
 function renderMe() {
   const p = myP(), box = $('#me');
@@ -764,9 +803,9 @@ function renderMe() {
   box.className = 'me' + (p.id === g.turn && !g.over ? ' turn' : '') + (!p.alive ? ' dead' : '') + (g.req && g.req.to === me && !g.over ? ' asked' : '') + (targets().has(me) ? ' target' : '');
   const bangUsed = g.turn === me && g.bangs && g.bangs >= g.bangLimit;
   box.innerHTML = `
-    <div class="me-card por" data-char="${p.char}"><img src="${CHAR_IMG(p.char)}" alt="">${ringSVG}<span class="rb ${p.role}">${roleImg(p.role)}</span></div>
+    <div class="me-card por" data-char="${p.char}"><img src="${CHAR_IMG(p.char)}" alt="">${ringSVG}${myRoleBadge(p)}</div>
     <div class="me-info">
-      <b class="me-name">${esc(p.name)} <span class="me-role ${p.role}">${ROLES[p.role].name}</span></b>
+      <b class="me-name">${esc(p.name)} ${myRoleChip(p)}</b>
       <span class="me-char" data-char="${p.char}"><b>${CHARS[p.char].name}</b> — ${esc(CHARS[p.char].desc)}</span>
       ${hpHTML(p)}
       ${lastHTML(p)}
@@ -1194,10 +1233,14 @@ function flyCard(c, from, to) {
   setTimeout(() => e.remove(), 700);
 }
 function banner(text, cls = '') { return fxEl('banner ' + cls, text, { x: $('#table').clientWidth / 2, y: $('#table').clientHeight * .4 }, 1500); }
+/** 뽑기! — 뒷면부터 보여 주고 뒤집은 뒤에 성공 · 실패를 띄운다 */
 function showFlip(e) {
   const f = $('#flip');
-  f.innerHTML = `<p class="flip-t">${esc(nameOf(e.id))} — ${e.what} 뽑기!</p><div class="flip-row">${e.cs.map(id => cardHTML(DECK[id], e.cs.length > 1 ? (id === e.pick ? 'pick' : 'dim') : '')).join('')}</div><p class="flip-v ${e.ok ? 'ok' : 'no'}">${e.ok ? '성공!' : '실패…'}</p>`;
+  f.innerHTML = `<p class="flip-t">${esc(nameOf(e.id))} — ${e.what} 뽑기!</p><div class="flip-row">${e.cs.map(id => `<span class="flip-c">${cardHTML(DECK[id], e.cs.length > 1 ? (id === e.pick ? 'pick' : 'dim') : '')}<span class="card back"><img class="c-art" src="${CARD_IMG('back')}" alt=""></span></span>`).join('')}</div><p class="flip-v ${e.ok ? 'ok' : 'no'}">${e.ok ? '성공!' : '실패…'}</p>`;
+  f.classList.remove('turned', 'told');
   f.hidden = false;
+  setTimeout(() => { f.classList.add('turned'); sfx.card(); }, 650);
+  setTimeout(() => { f.classList.add('told'); }, 1150);
   setTimeout(() => { f.hidden = true; }, FX_MS.flip - 100);
 }
 

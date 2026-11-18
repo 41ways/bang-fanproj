@@ -30,7 +30,7 @@ const BOT_NAMES = ['빌리', '장고', '애니', '와이엇', '돌리', '부치'
 
 /** 연출 한 가지가 화면에서 걸리는 시간(ms) — app.js 의 FX_MS 와 같아야 한다 */
 const FX_MS = {
-  turn: 1300, shot: 900, hurt: 650, heal: 600, dodge: 750, flip: 1600, boom: 1600, die: 2400,
+  turn: 1300, shot: 900, hurt: 650, heal: 600, dodge: 750, flip: 2300, boom: 1600, die: 2400,
   jailed: 1300, gatling: 1100, indians: 1100, play: 700, equip: 700, steal: 800, lose: 700,
   store: 1000, take: 550, draw: 450, show: 1100, pass: 900, spend: 500, discard: 450, over: 1500, reshuffle: 800,
   event: 3000, revive: 1600,

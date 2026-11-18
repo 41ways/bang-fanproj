@@ -840,3 +840,35 @@ body[data-screen="game"] .gtog { display: flex; }
 
 /* 폰 — 자리끼리 붙어 있어 금테를 조금 얇게 */
 @media (max-width: 760px) { :root { --turn-w: 5px; } }
+
+/* 뽑기! — 뒷면으로 나왔다가 뒤집히고, 그다음에 성공 · 실패 */
+.flip-c { position: relative; display: block; perspective: 700px; }
+.flip .flip-c .card { animation: none; backface-visibility: hidden; -webkit-backface-visibility: hidden; transition: transform .5s cubic-bezier(.3, 1.2, .4, 1); }
+.flip .flip-c .card:not(.back) { transform: rotateY(180deg); }
+.flip .flip-c .card.back { position: absolute; inset: 0; transform: rotateY(0); }
+.flip.turned .flip-c .card:not(.back) { transform: rotateY(0); }
+.flip.turned .flip-c .card.back { transform: rotateY(-180deg); }
+.flip .flip-c { animation: flipDeal .4s ease-out both; }
+@keyframes flipDeal { from { transform: translateY(-24px) scale(.8); opacity: 0; } }
+.flip-v { opacity: 0; transform: scale(.7); transition: opacity .2s, transform .25s cubic-bezier(.3, 1.6, .5, 1); }
+.flip.told .flip-v { opacity: 1; transform: none; }
+
+/* 내 역할 숨기기 — 평소엔 "?", 마우스를 올리거나 누르고 있는 동안만 보인다(body.peek-role) */
+[data-peek] { cursor: help; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; touch-action: none; }
+.secret .s-on { display: none; }
+body.peek-role .secret .s-off { display: none; }
+body.peek-role .secret .s-on { display: inline; }
+body.peek-role .rb.secret .s-on { display: contents; }
+body:not(.peek-role) .me-role.secret { background: #6b5a46; min-width: 28px; text-align: center; }
+.rb.secret .s-off { font: 700 15px var(--kr); color: #6b4b2a; }
+.guide p.secret-line { pointer-events: auto; filter: blur(5px); transition: filter .15s; }
+body.peek-role .guide p.secret-line { filter: none; }
+
+/* 처음 역할 카드 — 누르고 있는 동안만 앞면 */
+.role-flip.hold { cursor: pointer; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; touch-action: none; }
+.role-flip.hold .rf-in { transition-duration: .35s; }
+.role-flip.hold .rf-goal { transition: opacity .12s; }
+.role-flip.hold.open .rf-goal { transition: opacity .2s .15s; }
+.rf-hold { margin: 12px 0 0; font: 700 14px var(--kr); color: var(--gold-hi); text-shadow: 0 1px 4px #000; }
+.role-flip.open .rf-hold, .role-flip:not(.hold) .rf-hold { display: none; }
+.role-flip.hold:not(.open) .rf-goal { position: absolute; visibility: hidden; }

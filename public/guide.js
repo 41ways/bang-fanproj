@@ -124,9 +124,7 @@ function suspectLine(g, me) {
     .sort((a, b) => suspicion(g, b) - suspicion(g, a));
   if (!hit.length) return '';
   const names = hit.slice(0, 2).map(N).join(' · ');
-  return me.role === 'outlaw'
-    ? `🕵 ${names} 님이 보안관을 공격했어요 — 같은 무법자일 가능성이 커요.`
-    : `🕵 ${names} 님이 보안관을 공격했어요 — 무법자일 가능성이 커요.`;
+  return `🕵 ${names} 님이 보안관을 공격했어요 — 무법자일 가능성이 커요.`;   // 역할마다 말을 바꾸면 옆 사람에게 정체가 드러난다
 }
 
 /** 내 차례 — 손에서 무엇부터 낼지 */
@@ -180,6 +178,18 @@ function playAdvice(g, me, hand, r) {
  * @returns {{ lines: string[], card: number|null, cards: number[], target: number|null, store: number|null }}
  */
 export function advise(g, myId, r, sel, mode) {
+  const res = adviseRaw(g, myId, r, sel, mode);
+  const me = g && g.players.find(p => p.id === myId);
+  // 내 역할이 드러나는 줄은 \u0007 을 붙인다 — 화면이 평소엔 흐리게, 역할을 엿볼 때만 또렷하게 보여 준다
+  if (me && me.role && me.role !== 'sheriff' && me.alive) {
+    res.lines = res.lines.map((t, i) => (i === 0 && t === goalLine(g, me)) || REVEAL.test(t) ? SECRET + t : t);
+  }
+  return res;
+}
+const SECRET = '\u0007';
+const REVEAL = /보안관이에요|보안관 편으로|배신자|같은 편|보안관까지 거리|보안관.*쏘지 마세요/;
+
+function adviseRaw(g, myId, r, sel, mode) {
   const none = { lines: [], card: null, cards: [], target: null, store: null };
   const me = g && g.players.find(p => p.id === myId);
   if (!g || !me || !g.me || g.over) return none;
