@@ -595,6 +595,8 @@ function renderSqueeze() {
   const g = G(), r = g && g.req, el = $('#squeeze');
   if (!r || r.kind !== 'squeeze' || g.over) { el.hidden = true; el.dataset.key = ''; return; }
   const mine = r.to === me && !drawn.auto;
+  // 다른 사람이 쪼는 중이면 가운데에 띄우지 않는다 — 그 사람 자리에 작은 뒷면으로(아무나 까는 것처럼 보이지 않게)
+  if (!mine || !r.card) { el.hidden = true; el.dataset.key = ''; return; }
   const key = S.gameNo + ':' + r.seq + ':' + mine;
   if (el.dataset.key === key) return;          // 쪼는 중에 다시 그리면 손가락이 끊긴다
   el.dataset.key = key; el.hidden = false;
@@ -623,7 +625,11 @@ function bindSqueeze() {
     // 접힌 날개 — 모서리를 접은 선(x+y=L)에 비친 삼각형
     const fp = `polygon(${L}px 0, 0 ${L}px, ${L}px ${L}px)`;
     fold.style.clipPath = fold.style.webkitClipPath = L > 0 ? fp : 'polygon(0 0, 0 0, 0 0)';
-    box.classList.toggle('peeling', L > 0);
+    // 되덮일 때는 뒷면이 다 덮은 뒤에 앞면을 감춘다(덮이는 동안 빈 구멍이 보이지 않게)
+    clearTimeout(box._hideT);
+    if (L > 0) box.classList.add('peeling');
+    else if (anim) box._hideT = setTimeout(() => { if (!L) box.classList.remove('peeling'); }, 360);
+    else box.classList.remove('peeling');
   };
   const open = () => {
     if (done) return; done = true;
@@ -726,8 +732,21 @@ function lastHTML(p) {
   const old = L.n <= (G().sayFrom || 0);
   return `<span class="o-last ${old ? 'old' : ''} ${isNew ? 'new' : ''}" title="${esc(L.t)}">${esc(L.t)}</span>`;
 }
+/* 역할 예상 — 정체를 모르는 사람마다 🔍 단추. 눌러 고르면 그 역할 그림으로 바뀐다. 내 화면에만(이 탭에만) 남는다 */
+let guessOpen = null;
+const guessKey = () => 'guess.' + (S ? S.code + ':' + S.gameNo : '');
+function guesses() { try { return JSON.parse(ss.get(guessKey()) || '{}'); } catch (_) { return {}; } }
+function setGuess(pid, role) { const o = guesses(); if (role) o[pid] = role; else delete o[pid]; ss.set(guessKey(), JSON.stringify(o)); }
+function guessRow(p) {
+  const g = G(), mine = guesses()[p.id];
+  const roles = ['deputy', 'outlaw', 'renegade'].filter(r => (ROLES_BY_N[g.players.length] || []).includes(r));
+  return `<div class="guess-row" data-gfor="${p.id}"><p class="gr-t">${esc(p.name)} 님은…</p>${roles.map(r => `<button class="gr-b ${mine === r ? 'on' : ''}" data-gpick="${r}">${roleImg(r, 'ri')}<span>${ROLES[r].name}</span></button>`).join('')}<button class="gr-b clear" data-gpick=""><b>🔍</b><span>모름</span></button></div>`;
+}
 function roleBadge(p) {
-  if (!p.role) return '<span class="rb unk" title="정체 모름">?</span>';
+  if (!p.role) {
+    const mine = guesses()[p.id];
+    return `<button class="rb unk guess ${mine ? 'set' : ''} ${guessOpen === p.id ? 'open' : ''}" data-guess="${p.id}" aria-label="역할 예상${mine ? ' — ' + ROLES[mine].name : ''}" title="역할 예상하기">${mine ? roleImg(mine) : '🔍'}</button>`;
+  }
   return `<span class="rb ${p.role}" title="${ROLES[p.role].name}">${roleImg(p.role)}</span>`;
 }
 const RING_R = 37, RING_C = 2 * Math.PI * RING_R;
@@ -736,7 +755,7 @@ function seatHTML(p) {
   const g = G(), req = g.req;
   const aims = aimSet();
   const cls = ['opp', p.status === 'ghost' ? 'ghost' : '', p.status === 'down' ? 'down' : '', p.id === g.turn && !g.over ? 'turn' : '', req && req.to === p.id && !g.over ? 'thinking' : '', req && req.to === p.id && req.to !== g.turn && !g.over ? 'asked' : '', !p.alive ? 'dead' : '',
-    targets().has(p.id) ? 'target' : '', gd.target === p.id ? 'hint' : ''].join(' ');
+    targets().has(p.id) ? 'target' : '', gd.target === p.id ? 'hint' : '', guessOpen === p.id ? 'gopen' : ''].join(' ');
   const mp = myP();
   const far = mp && mp.alive && p.id !== me ? farOf(p) : null, inRange = far != null && far <= reachOf(mp);
   const back = far != null ? farToMe(p) : null, threat = back != null && back <= reachOf(p);
@@ -755,6 +774,8 @@ function seatHTML(p) {
     </div>
     <div class="o-tbl">${p.table.map(c => cardHTML(c, 'mini' + (aims.has(c.id) ? ' aim' : ''))).join('')}</div>
     <div class="think">생각 중…</div>
+    ${!p.role && guessOpen === p.id ? guessRow(p) : ''}
+    ${req && req.kind === 'squeeze' && req.to === p.id && !g.over ? `<div class="sq-mini"><span class="card back"><img class="c-art" src="${CARD_IMG('back')}" alt=""></span><b>${esc(req.what || '')} 뽑기!</b><small>쪼는 중…</small></div>` : ''}
   </div>`;
 }
 function renderOpps() {
@@ -1010,6 +1031,12 @@ function whyNot(id) {
 }
 
 $('#opps').addEventListener('click', e => {
+  // 역할 예상 단추 · 고르기 — 대상 고르기보다 먼저
+  const gb = e.target.closest('[data-guess]');
+  if (gb) { const id = Number(gb.dataset.guess); guessOpen = guessOpen === id ? null : id; renderOpps(); return; }
+  const gp = e.target.closest('[data-gpick]');
+  if (gp) { const id = Number(gp.closest('.guess-row').dataset.gfor); setGuess(id, gp.dataset.gpick); guessOpen = null; renderOpps(); sfx.pop(); return; }
+  if (e.target.closest('.guess-row')) return;
   const el = e.target.closest('.opp'); if (!el) return;
   const pid = Number(el.dataset.pid), r = myReq();
   if (!r) return;
@@ -1505,6 +1532,7 @@ function placeTip(x, y) {
 let tipT = null, tipAt = null;
 document.addEventListener('mouseover', e => {
   if (matchMedia('(hover: none)').matches) return;
+  if (e.target.closest('[data-guess], .guess-row')) { clearTimeout(tipT); hideTip(); return; }
   const c = e.target.closest('.card[data-cid]');
   const ch = !c && e.target.closest('[data-char]');
   const evc = !c && !ch && e.target.closest('.ecard[data-ev]');
@@ -1518,6 +1546,8 @@ document.addEventListener('mouseover', e => {
     tip.hidden = false; placeTip(tipAt.x, tipAt.y);
   }, tip.hidden ? 420 : 60);
 });
+// 다른 곳을 누르면 역할 예상 칸을 닫는다 — click 으로(pointerdown 에서 다시 그리면 자리 고르기 클릭이 사라진다)
+document.addEventListener('click', e => { if (guessOpen != null && !e.target.closest('[data-guess], .guess-row')) { guessOpen = null; if (screen === 'game' && G()) renderOpps(); } });
 document.addEventListener('mousemove', e => { tipAt = { x: e.clientX, y: e.clientY }; if (!tip.hidden) placeTip(e.clientX, e.clientY); });
 document.addEventListener('pointerdown', () => { clearTimeout(tipT); hideTip(); });
 function tipFor(id) { if (matchMedia('(hover: none)').matches) infoPop(tipCard(DECK[id])); }
@@ -1527,7 +1557,7 @@ document.addEventListener('click', e => {
   if (!matchMedia('(hover: none)').matches) return;
   if (screen === 'lobby') { const ev = e.target.closest('#lExp .ecard[data-ev]'); if (ev) { const E = EVENTS[ev.dataset.ev]; infoPop(`<h4>${E.name}</h4><p>${esc(E.desc)}</p>`); } return; }
   if (screen !== 'game') return;
-  if (e.target.closest('#hand, #pop, #act, .chat, #help, #store .card.can')) return;
+  if (e.target.closest('#hand, #pop, #act, .chat, #help, #store .card.can, [data-guess], .guess-row')) return;
   if (e.target.closest('.o-tbl .card.aim, .opp.target, .me.target')) return;
   const c = e.target.closest('.card[data-cid]'), ch = !c && e.target.closest('[data-char]'), ev = !c && !ch && e.target.closest('.ecard[data-ev]');
   const calc = !c && !ch && !ev && e.target.closest('[data-calc]');
