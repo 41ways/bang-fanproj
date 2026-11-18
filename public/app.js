@@ -537,9 +537,13 @@ async function pump() {
       if (cut) await playFx(fx.slice(0, cut));
       drawn = m;
       addLogs(m.logs);
+      // "○○ 턴" 알림이 있으면 그게 끝날 때까지 이 상태의 요청(쪼기 · 고르기 창 · 할 일 단추)을 내보이지 않는다 —
+      // 모든 일은 누구 턴인지 보여 준 다음에 시작한다
+      turnBusy = fx.slice(cut).some(e => e.fx === 'turn');
       renderGame();
       // 새 상태를 먼저 그리고 그 위에서 연출을 보여 준다 — 다 끝나야 다음 상태로 (서버도 그만큼 기다린다)
       if (fx.length > cut) await playFx(fx.slice(cut));
+      if (turnBusy) { turnBusy = false; if (drawn === m) renderGame(); }
       if (m.phase === 'over' && !overShown) { overShown = true; setTimeout(showOver, fast ? 300 : 1800); }
       else if (m.phase === 'over' && screen === 'over') showOver();
       if (m.phase !== 'over') overShown = false;
@@ -554,7 +558,8 @@ function unsend() { if (!sentSeq) return; sentSeq = ''; if (screen === 'game' &&
 function resetSel() { sel = []; mode = null; }
 
 const G = () => drawn && drawn.g;
-const myReq = () => { const g = G(); return g && g.req && g.req.to === me && !drawn.auto && reqKey(g.req) !== sentSeq ? g.req : null; };
+let turnBusy = false;
+const myReq = () => { const g = G(); return !turnBusy && g && g.req && g.req.to === me && !drawn.auto && reqKey(g.req) !== sentSeq ? g.req : null; };
 const myP = () => (G() && me != null ? G().players.find(p => p.id === me) : null);
 
 /* 초보자 가이드 — 위 🧭 단추로 켜고 끈다. 처음엔 켜져 있다 */
@@ -593,7 +598,7 @@ function sqNeed(what) {
 }
 function renderSqueeze() {
   const g = G(), r = g && g.req, el = $('#squeeze');
-  if (!r || r.kind !== 'squeeze' || g.over) { el.hidden = true; el.dataset.key = ''; return; }
+  if (!r || r.kind !== 'squeeze' || g.over || turnBusy) { el.hidden = true; el.dataset.key = ''; return; }
   const mine = r.to === me && !drawn.auto;
   // 다른 사람이 쪼는 중이면 가운데에 띄우지 않는다 — 그 사람 자리에 작은 뒷면으로(아무나 까는 것처럼 보이지 않게)
   if (!mine || !r.card) { el.hidden = true; el.dataset.key = ''; return; }
@@ -775,7 +780,7 @@ function seatHTML(p) {
     <div class="o-tbl">${p.table.map(c => cardHTML(c, 'mini' + (aims.has(c.id) ? ' aim' : ''))).join('')}</div>
     <div class="think">생각 중…</div>
     ${!p.role && guessOpen === p.id ? guessRow(p) : ''}
-    ${req && req.kind === 'squeeze' && req.to === p.id && !g.over ? `<div class="sq-mini"><span class="card back"><img class="c-art" src="${CARD_IMG('back')}" alt=""></span><b>${esc(req.what || '')} 뽑기!</b><small>쪼는 중…</small></div>` : ''}
+    ${req && req.kind === 'squeeze' && req.to === p.id && !g.over && !turnBusy ? `<div class="sq-mini"><span class="card back"><img class="c-art" src="${CARD_IMG('back')}" alt=""></span><b>${esc(req.what || '')} 뽑기!</b><small>쪼는 중…</small></div>` : ''}
   </div>`;
 }
 function renderOpps() {
@@ -1099,8 +1104,8 @@ function renderAct() {
   } else if (drawn.auto && p && p.alive) {
     text = '💤 자리 비움 — 봇이 대신 두고 있어요';
     B('돌아왔어요', () => send({ t: 'back' }), 'red');
-  } else if (!r) {
-    text = '';
+  } else if (!r || turnBusy) {
+    text = '';                                   // 차례 알림이 떠 있는 동안엔 비워 둔다
   } else if (!rm) {
     if (r.to === me) text = '…';
     else {
