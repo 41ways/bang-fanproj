@@ -980,3 +980,7 @@ body.dragging-card, body.dragging-card * { cursor: grabbing !important; -webkit-
 .chat-msg.sys { text-align: center; margin: 2px 0; }
 /* 자리 이름 앞 작은 색 네모 — 채팅 색과 같다 */
 .o-name .pc { display: inline-block; width: 9px; height: 9px; margin: 0 5px 1px 0; border-radius: 2px; background: var(--c); vertical-align: middle; box-shadow: 0 0 0 1px rgba(0, 0, 0, .25); }
+/* 쓰러진 사람의 말 — 회색, 이름 앞 ☠ */
+.cm.dead .cm-who { color: #6f645a; }
+.cm.dead .cm-bub, .cm.mine.dead .cm-bub { background: rgba(120, 110, 100, .16); box-shadow: inset 0 0 0 1px rgba(90, 80, 70, .4); color: #5a4f46; font-style: italic; }
+.cm.mine.dead .cm-who { margin: 4px 3px 0 0; }

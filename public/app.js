@@ -253,14 +253,18 @@ function addChat(m) {
     d.textContent = m.text;
   } else {
     // 말풍선 — 사람마다 자리 순서대로 고정 색. 같은 사람이 이어 쓰면 이름은 한 번만, 내 말은 오른쪽
-    const key = (m.spec ? 's' : 'p') + m.from;
+    // 판에서 이미 쓰러진 사람이 한 말 — ☠ 와 "쓰러짐", 회색 말풍선
+    const gp = !m.spec && screen === 'game' && G() && !G().over ? G().players.find(p => p.id === m.from) : null;
+    const dead = !!(gp && !gp.alive);
+    const key = (m.spec ? 's' : 'p') + m.from + (dead ? 'd' : '');
     const prev = [...log.children].reverse().find(x => !x.classList.contains('chat-more'));
     const cont = prev && prev.dataset.from === key;
     d = document.createElement('div');
-    d.className = 'cm' + (mine ? ' mine' : '') + (m.spec ? ' spec' : '') + (cont ? ' cont' : '');
+    d.className = 'cm' + (mine ? ' mine' : '') + (m.spec ? ' spec' : '') + (cont ? ' cont' : '') + (dead ? ' dead' : '');
     d.dataset.from = key;
     d.style.setProperty('--c', chatColor(m));
-    d.innerHTML = `${mine || cont ? '' : `<p class="cm-who">${esc(m.name)}${m.spec ? ' (관전)' : ''}</p>`}<div class="cm-bub">${esc(m.text)}</div>`;
+    const who = mine ? (dead ? '☠ 나 · 쓰러짐' : '') : `${dead ? '☠ ' : ''}${esc(m.name)}${m.spec ? ' (관전)' : ''}${dead ? ' · 쓰러짐' : ''}`;
+    d.innerHTML = `${!who || cont ? '' : `<p class="cm-who">${who}</p>`}<div class="cm-bub">${esc(m.text)}</div>`;
   }
   log.appendChild(d);
   while (log.children.length > 60) log.removeChild(log.firstChild);
