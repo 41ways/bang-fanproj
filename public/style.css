@@ -967,3 +967,16 @@ body.dragging-card, body.dragging-card * { cursor: grabbing !important; -webkit-
 .card.drag-ghost.gone { transition: transform .25s ease-in, opacity .25s; opacity: 0; transform: translateY(-60px) scale(1.3) !important; }
 .drop-ok { box-shadow: 0 0 0 4px var(--red-hi), 0 0 0 6px #160c05, 0 0 30px rgba(255, 90, 50, .8) !important; }
 .drop-ok.drop-hot { box-shadow: 0 0 0 6px var(--gold-hi), 0 0 0 9px #160c05, 0 0 46px rgba(255, 215, 120, .95) !important; }
+
+/* ── 채팅 말풍선 — 사람마다 색(--c), 같은 사람이 이어 쓰면 이름 한 번, 내 말은 오른쪽 ── */
+.cm { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+.cm.cont { margin-top: -3px; }
+.cm.mine { align-items: flex-end; }
+.cm-who { margin: 4px 0 0 3px; font-size: 12px; font-weight: 700; line-height: 1.3; color: var(--c); }
+.cm-bub { max-width: 86%; padding: 4px 10px; border-radius: 0 4px 4px 4px; font-size: 14.5px; line-height: 1.4; word-break: break-word; user-select: text; -webkit-user-select: text;
+  background: #fff8e8; background: color-mix(in srgb, var(--c) 16%, #fff8e8); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c) 45%, transparent); }
+.cm.cont .cm-bub { border-radius: 4px; }
+.cm.mine .cm-bub { border-radius: 4px 0 4px 4px; background: #fff3d4; box-shadow: inset 0 0 0 1px rgba(184, 134, 31, .6); }
+.chat-msg.sys { text-align: center; margin: 2px 0; }
+/* 자리 이름 앞 작은 색 네모 — 채팅 색과 같다 */
+.o-name .pc { display: inline-block; width: 9px; height: 9px; margin: 0 5px 1px 0; border-radius: 2px; background: var(--c); vertical-align: middle; box-shadow: 0 0 0 1px rgba(0, 0, 0, .25); }

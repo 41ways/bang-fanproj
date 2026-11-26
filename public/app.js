@@ -235,13 +235,33 @@ function chatFollow(log, atEnd, mine) {
   log.appendChild(more); // 늘 맨 끝에
   if (!log._chatMoreWatch) { log._chatMoreWatch = true; log.addEventListener('scroll', () => { const m = log.querySelector('.chat-more'); if (m && chatAtEnd(log)) m.remove(); }); }
 }
+/** 사람 색 — 방에 앉은 순서대로 7색. 관전자는 흙빛 하나 */
+const PCOL = ['#a3301e', '#2f6f8f', '#7a5a10', '#7d3f8f', '#2e7d6b', '#b35a1c', '#5a6470'];
+function pColor(id) {
+  const i = S && S.players ? S.players.findIndex(p => p.id === id) : -1;
+  return i < 0 ? '#6b5a46' : PCOL[i % PCOL.length];
+}
+const chatColor = m => m.spec ? '#6b5a46' : pColor(m.from);
 function addChat(m) {
   const log = $('#chatLog');
   const atEnd = chatAtEnd(log);
-  const d = document.createElement('p');
   const mine = !m.sys && m.from === (me != null ? me : specId);
-  d.className = 'chat-msg' + (mine ? ' mine' : '') + (m.sys ? ' sys' : '');
-  d.innerHTML = m.sys ? esc(m.text) : `<b>${esc(m.name)}${m.spec ? ' (관전)' : ''}</b>${esc(m.text)}`;
+  let d;
+  if (m.sys) {
+    d = document.createElement('p');
+    d.className = 'chat-msg sys';
+    d.textContent = m.text;
+  } else {
+    // 말풍선 — 사람마다 자리 순서대로 고정 색. 같은 사람이 이어 쓰면 이름은 한 번만, 내 말은 오른쪽
+    const key = (m.spec ? 's' : 'p') + m.from;
+    const prev = [...log.children].reverse().find(x => !x.classList.contains('chat-more'));
+    const cont = prev && prev.dataset.from === key;
+    d = document.createElement('div');
+    d.className = 'cm' + (mine ? ' mine' : '') + (m.spec ? ' spec' : '') + (cont ? ' cont' : '');
+    d.dataset.from = key;
+    d.style.setProperty('--c', chatColor(m));
+    d.innerHTML = `${mine || cont ? '' : `<p class="cm-who">${esc(m.name)}${m.spec ? ' (관전)' : ''}</p>`}<div class="cm-bub">${esc(m.text)}</div>`;
+  }
   log.appendChild(d);
   while (log.children.length > 60) log.removeChild(log.firstChild);
   chatFollow(log, atEnd, mine);
@@ -771,7 +791,7 @@ function seatHTML(p) {
   return `<div class="${cls}" data-pid="${p.id}">
     <div class="por" data-char="${p.char}"><img src="${CHAR_IMG(p.char)}" alt="">${ringSVG}${roleBadge(p)}</div>
     <div class="o-info">
-      <b class="o-name">${p.status === 'ghost' ? '👻 ' : ''}${esc(p.name)}${p.bot ? ' <i class="otag">봇</i>' : ''}${pl && !pl.bot && !pl.connected ? ' <i class="otag off">끊김</i>' : ''}</b>
+      <b class="o-name"><i class="pc" style="--c:${pColor(p.id)}" title="채팅 색"></i>${p.status === 'ghost' ? '👻 ' : ''}${esc(p.name)}${p.bot ? ' <i class="otag">봇</i>' : ''}${pl && !pl.bot && !pl.connected ? ' <i class="otag off">끊김</i>' : ''}</b>
       <span class="o-char" data-char="${p.char}">${CHARS[p.char].name}${!p.alive && p.role ? ' · ' + ROLES[p.role].name : ''}</span>
       ${hpHTML(p)}
       ${lastHTML(p)}
