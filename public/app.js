@@ -931,7 +931,91 @@ function fitHand() {
   el.style.setProperty('--ov', ov.toFixed(1) + 'px');
 }
 addEventListener('resize', () => requestAnimationFrame(fitHand));
-$('#hand').addEventListener('click', e => { const c = e.target.closest('.card'); if (c) clickCard(Number(c.dataset.cid)); });
+$('#hand').addEventListener('click', e => { if (Date.now() < dragQuiet) return; const c = e.target.closest('.card'); if (c) clickCard(Number(c.dataset.cid)); });
+
+/* ─── 끌어서 내기 — 손 카드를 위로 끌어 올리면 점점 내는 모양이 되고, 놓으면 낸다 ───
+   누르기 · 두 번 누르기는 그대로 두고 더한 방법이다. 대상이 필요한 카드는 빛나는 자리 위에 놓으면 바로 그 사람에게,
+   빈 곳에 놓으면 카드만 고른 상태가 되어 자리를 누르면 된다. 손 칸은 넘치는 걸 잘라서, 끄는 카드는 화면 위에 따로 띄운다 */
+let drag = null, dragQuiet = 0;
+const DRAG_UP = 130;                           // 이만큼 위로 끌면 "놓으면 냄"
+function dragKind(id) {
+  const r = myReq(); if (!r) return null;
+  const ok = eligible(); if (!ok || !ok.has(id)) return null;
+  if (r.kind === 'play' && !mode) return 'play';
+  if (r.kind === 'react' && r.need === 1) return 'react';
+  if (r.kind === 'dying' && !mode) return 'beer';
+  return null;
+}
+$('#hand').addEventListener('pointerdown', e => {
+  const c = e.target.closest('.card'); if (!c || e.button > 0) return;
+  const id = Number(c.dataset.cid), kind = dragKind(id);
+  if (!kind) return;
+  const mv = kind === 'play' ? myReq().moves[id] : null;
+  drag = { id, kind, el: c, x0: e.clientX, y0: e.clientY, rc: c.getBoundingClientRect(), on: false, ghost: null, p: 0, over: null, tg: mv && mv.tg ? mv.tg : null, pid: e.pointerId };
+});
+addEventListener('pointermove', e => {
+  if (!drag || e.pointerId !== drag.pid) return;
+  const dx = e.clientX - drag.x0, dy = e.clientY - drag.y0;
+  if (!drag.on) {
+    if (Math.hypot(dx, dy) < 8 || dy > -6) return;          // 위로 조금은 움직여야 끌기로 친다
+    drag.on = true; hideTip();
+    const gst = drag.el.cloneNode(true);
+    gst.classList.remove('sel', 'hint', 'new', 'dim');
+    gst.classList.add('drag-ghost');
+    Object.assign(gst.style, { left: drag.rc.left + 'px', top: drag.rc.top + 'px', width: drag.rc.width + 'px', height: drag.rc.height + 'px' });
+    document.body.appendChild(gst);
+    drag.ghost = gst;
+    drag.el.classList.add('lifted');
+    document.body.classList.add('dragging-card');
+    if (drag.tg) for (const pid of drag.tg) { const st = pid === me ? $('#me') : $(`#opps .opp[data-pid="${pid}"]`); if (st) st.classList.add('drop-ok'); }
+  }
+  const p = Math.max(0, Math.min(1, -dy / DRAG_UP));
+  const ease = p * p * (3 - 2 * p);
+  drag.p = p;
+  drag.ghost.style.transform = `translate(${dx}px, ${dy}px) scale(${1 + ease * .22}) rotate(${Math.max(-10, Math.min(10, dx / 14)) * (1 - ease * .6)}deg)`;
+  drag.ghost.style.setProperty('--lift', ease.toFixed(3));
+  drag.ghost.classList.toggle('ready', p >= 1);
+  // 대상 카드 — 손가락 밑의 빛나는 자리
+  if (drag.tg) {
+    const under = document.elementFromPoint(e.clientX, e.clientY);
+    const seat = under && under.closest('.opp, #me');
+    const pid = seat ? (seat.id === 'me' ? me : Number(seat.dataset.pid)) : null;
+    drag.over = pid != null && drag.tg.includes(pid) ? pid : null;
+    $$('.drop-ok').forEach(st => st.classList.toggle('drop-hot', (st.id === 'me' ? me : Number(st.dataset.pid)) === drag.over));
+  }
+});
+function dragEnd(e, cancel) {
+  if (!drag || (e && e.pointerId !== drag.pid)) return;
+  const d = drag; drag = null;
+  if (!d.on) return;
+  dragQuiet = Date.now() + 350;                // 끌기 끝의 click 이 "고르기"로 다시 먹히지 않게
+  document.body.classList.remove('dragging-card');
+  $$('.drop-ok').forEach(st => st.classList.remove('drop-ok', 'drop-hot'));
+  const done = !cancel && (d.p >= 1 || d.over != null);
+  const ghost = d.ghost;
+  const unlift = () => d.el.classList.remove('lifted');
+  if (!done) {
+    ghost.classList.add('back'); ghost.style.transform = '';
+    setTimeout(() => { ghost.remove(); unlift(); }, 220);
+    return;
+  }
+  ghost.classList.add('gone');
+  setTimeout(() => ghost.remove(), 260);
+  if (d.kind === 'react') return act({ a: 'cards', cs: [d.id] });
+  if (d.kind === 'beer') return act({ a: 'beer', c: d.id });
+  const mv = myReq() && myReq().moves[d.id];
+  if (!mv) return unlift();
+  if (!mv.tg) { unlift(); return playNoTarget(d.id); }
+  if (d.over != null) {
+    if (mv.steal) { unlift(); return stealPick(d.id, d.over); }
+    return act({ a: 'play', c: d.id, t: d.over });
+  }
+  // 대상이 필요한데 빈 곳에 놓았다 — 카드만 고른 상태로, 빛나는 자리를 누르면 된다
+  unlift();
+  sel = [d.id]; sfx.card(); renderGame();
+}
+addEventListener('pointerup', e => dragEnd(e, false));
+addEventListener('pointercancel', e => dragEnd(e, true));
 $('#hand').addEventListener('dblclick', e => {
   const c = e.target.closest('.card'); if (!c) return;
   const r = myReq(), id = Number(c.dataset.cid);
@@ -1163,7 +1247,8 @@ function renderAct() {
         else text = `<b>${from} 님과 결투!</b> 뱅!을 1장 버리면 상대 차례, 못 버리면 생명 1을 잃어요`;
         if (rm.barrel) B(p.char === 'jourdonnais' && !p.table.some(t => t.k === 'barrel') ? '🛢 능력: 술통 뽑기' : '🛢 술통 쓰기', () => act({ a: 'barrel' }), 'red');
         const firstK = (elig.find(c => c.k === rm.ok[0]) || elig[0] || { k: rm.ok[0] }).k;
-        if (elig.length) B(rm.why !== 'duel' && rm.why !== 'indians' ? (rm.need > 1 ? `빗나감! 내기 (${Math.min(elig.length, rm.need)}장)` : `${KINDS[firstK].name} 내기`) : `${KINDS[rm.ok.find(k => elig.some(c => c.k === k)) || rm.ok[0]].name} 버리기`, () => {
+        if (rm.need > 1 && elig.length < rm.need) text += `<small>빗나감!이 ${rm.need}장 있어야 막을 수 있어요 — 지금 ${elig.length}장뿐이에요</small>`;
+        if (elig.length >= rm.need) B(rm.why !== 'duel' && rm.why !== 'indians' ? (rm.need > 1 ? `빗나감! ${rm.need}장 내기` : `${KINDS[firstK].name} 내기`) : `${KINDS[rm.ok.find(k => elig.some(c => c.k === k)) || rm.ok[0]].name} 버리기`, () => {
           let cs = sel.filter(id => elig.some(c => c.id === id));
           for (const c of [...elig].sort((a, b) => (a.k === rm.ok[0] ? -1 : 1) - (b.k === rm.ok[0] ? -1 : 1))) { if (cs.length >= rm.need) break; if (!cs.includes(c.id)) cs.push(c.id); }
           act({ a: 'cards', cs: cs.slice(0, rm.need) });
