@@ -259,6 +259,7 @@ function adviseRaw(g, myId, r, sel, mode) {
       } else if (r.why === 'indians') say(elig.length ? '뱅!을 1장 버리면 생명을 지켜요.' : '버릴 뱅!이 없어요 — 생명 1을 잃어요.');
       else if (r.why === 'ricochet') say(elig.length ? '그 카드가 아깝지 않으면 빗나감!을 아껴 두고 포기해도 돼요.' : '막을 빗나감!이 없어요.');
       else if (elig.length >= (r.need || 1)) say(`빗나감!으로 막으세요. 맞으면 생명이 ${me.hp}에서 ${roNum(me.hp - (r.why === 'roulette' ? 2 : 1))} 줄어요.`);
+      else if (r.need > 1 && elig.length) say(`빗나감!이 ${r.need}장 있어야 막아요. ${elig.length}장으로는 못 막으니 아껴 두세요.`);
       else {
         const beer = hand.some(c => c.k === 'beer');
         say(me.hp <= (r.why === 'roulette' ? 2 : 1) ? (beer ? '막을 카드가 없어요. 맞아도 맥주가 있으니 살아날 수 있어요.' : '막을 카드가 없어요. 이번에 맞으면 쓰러져요.') : '막을 카드가 없어요 — 맞기를 누르세요.');

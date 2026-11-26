@@ -60,6 +60,30 @@ const empty = g => { for (const p of g.players) { g.pile.push(...p.hand); p.hand
   ok(g.P('p1').hp === 4, '슬랩 뱅!을 술통+빗나감!으로 막음');
 }
 
+/* 슬랩 더 킬러 — 빗나감! 1장만 내는 건 거절(카드만 잃고 맞던 일), 2장은 한꺼번에 */
+{
+  const g = setup(['slab', 'bart', 'pedro', 'sid']);
+  empty(g);
+  hand(g, 'p0', [find('bang', 'S', 1)]);
+  const [m1, m2] = all('missed');
+  hand(g, 'p1', [m1]);
+  g.answer('p0', { a: 'play', c: g.P('p0').hand[0], t: 'p1' });
+  let threw = false; try { g.answer('p1', { a: 'cards', cs: [m1] }); } catch (_) { threw = true; }
+  ok(threw && g.P('p1').hand.includes(m1), '슬랩 뱅!에 빗나감! 1장은 거절, 카드는 그대로');
+  g.answer('p1', { a: 'take' });
+  ok(g.P('p1').hp === 3 && g.P('p1').hand.includes(m1), '맞으면 생명만 −1, 빗나감!은 남는다');
+}
+{
+  const g = setup(['slab', 'sid', 'pedro', 'bart']);
+  empty(g);
+  hand(g, 'p0', [find('bang', 'S', 1)]);
+  const [m1, m2] = all('missed');
+  hand(g, 'p1', [m1, m2]);
+  g.answer('p0', { a: 'play', c: g.P('p0').hand[0], t: 'p1' });
+  g.answer('p1', { a: 'cards', cs: [m1, m2] });
+  ok(g.P('p1').hp === 4 && g.pile.includes(m1) && g.pile.includes(m2), '슬랩 뱅!을 빗나감! 2장으로 한꺼번에 막음');
+}
+
 /* 쪼기 — 사람이 술통 뽑기!를 직접 연다. 열기 전엔 카드가 보이지 않고, 연 뒤에 판정 */
 {
   const seats = ['sheriff', 'renegade', 'outlaw', 'outlaw'].map((_, i) => ({ id: 'p' + i, name: 'P' + i }));

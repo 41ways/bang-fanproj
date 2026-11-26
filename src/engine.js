@@ -260,7 +260,8 @@ export class Game {
       case 'react':
         if (r.a === 'take') return;
         if (r.a === 'barrel') { if (!q.barrel) bad('쓸 술통이 없습니다'); return; }
-        if (r.a !== 'cards' || !Array.isArray(r.cs) || r.cs.length < 1 || r.cs.length > q.need || new Set(r.cs).size !== r.cs.length || !r.cs.every(inHand)) bad('카드 ' + q.need + '장까지 낼 수 있습니다');
+        // 슬랩 더 킬러처럼 2장이 필요하면 2장을 한꺼번에 — 한 장만 내면 카드만 잃고 결국 맞는다
+        if (r.a !== 'cards' || !Array.isArray(r.cs) || r.cs.length !== q.need || new Set(r.cs).size !== r.cs.length || !r.cs.every(inHand)) bad(q.need > 1 ? `빗나감! ${q.need}장을 한꺼번에 내야 막을 수 있습니다` : '카드 1장을 내세요');
         if (!r.cs.every(c => q.ok.includes(this.C(c).k))) bad('그 카드로는 막을 수 없습니다');
         return;
       case 'dying':

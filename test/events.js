@@ -147,8 +147,10 @@ function endTurn(g) {
   hand(g, 'p1', [find('missed', 'S', 2)]);
   g.answer('p0', { a: 'play', c: find('bang', 'D', 2), c2: find('bang', 'D', 3), t: 'p1' });
   ok(g.req.kind === 'react' && g.req.need === 2, '저격수 — 빗나감! 2장 필요');
-  g.answer('p1', { a: 'cards', cs: [find('missed', 'S', 2)] });
-  ok(g.P('p1').hp === 3 && g.bangs === 0, '저격수 — 1장으론 못 막고, 뱅! 횟수엔 안 듦');
+  let one = false; try { g.answer('p1', { a: 'cards', cs: [find('missed', 'S', 2)] }); } catch (_) { one = true; }
+  ok(one, '저격수 — 빗나감! 1장만 내는 건 거절');
+  g.answer('p1', { a: 'take' });
+  ok(g.P('p1').hp === 3 && g.bangs === 0 && g.P('p1').hand.includes(find('missed', 'S', 2)), '저격수 — 1장으론 못 막고(카드는 남음), 뱅! 횟수엔 안 듦');
   const g2 = setup(['bart', 'sid', 'pedro', 'willy'], []);
   empty(g2);
   g2.event = 'ricochet';
